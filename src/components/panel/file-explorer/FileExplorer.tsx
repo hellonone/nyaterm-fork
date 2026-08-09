@@ -88,7 +88,10 @@ import {
 } from "@/lib/sftpClipboard";
 import { matchesKeyEvent } from "@/lib/shortcutRegistry";
 import { getSessionInputPeerIds } from "@/lib/syncInputGroups";
-import { resolveRemoteMoveTargets } from "@/lib/transferDuplicateResolution";
+import {
+  findMissingRemoteEntries,
+  resolveRemoteMoveTargets,
+} from "@/lib/transferDuplicateResolution";
 import { cn, formatSize } from "@/lib/utils";
 import type { FileWindowTarget } from "@/lib/windowManager";
 import { openAutoUpload, openFilePreview, openRemoteFileEditor } from "@/lib/windowManager";
@@ -1908,6 +1911,18 @@ function FileExplorerPane({
         return;
       }
 
+      const missingSources = await findMissingRemoteEntries(sourceSessionId, entries);
+      if (missingSources.length > 0) {
+        toast.error(
+          t("fileExplorer.pasteSourceMissing", {
+            count: missingSources.length,
+            names: missingSources.map((entry) => entry.name).join(", "),
+          }),
+        );
+        clearSftpClipboard();
+        return;
+      }
+
       const confirmed = await showPasteConfirm({
         action: mode === "cut" ? "move" : "copy",
         count: entries.length,
@@ -1967,29 +1982,35 @@ function FileExplorerPane({
 
     // 2. OS clipboard file paths → upload to this directory.
     if (osObservation.hasFiles) {
+      let resolved: ResolvedLocalDropPathEntry[] = [];
+      try {
+        resolved = await resolveLocalDropPaths(osObservation.paths);
+      } catch (error) {
+        toast.error(getErrorMessage(error) || String(error));
+        return;
+      }
+      const skippedCount = osObservation.paths.length - resolved.length;
+      if (skippedCount > 0) {
+        toast.warning(t("fileExplorer.pasteSourceMissingSkipped", { count: skippedCount }));
+      }
+      if (resolved.length === 0) {
+        return;
+      }
+
       const confirmedUpload = await showPasteConfirm({
         action: "upload",
-        count: osObservation.paths.length,
+        count: resolved.length,
         targetDir,
-        fileNames: osObservation.paths.map((path) => getLocalPathName(path, path)),
+        fileNames: resolved.map((entry) => getLocalPathName(entry.path, entry.path)),
       });
       if (!confirmedUpload) {
         return;
       }
 
-      try {
-        const resolved = await resolveLocalDropPaths(osObservation.paths);
-        if (resolved.length === 0) {
-          toast.error(t("fileExplorer.externalDropPathsRequired"));
-          return;
-        }
-        uploadLocalEntriesToTarget(
-          { sessionId: activeSessionId, remoteDir: targetDir },
-          resolved.map((entry) => ({ path: entry.path, isDir: entry.isDir })),
-        );
-      } catch (error) {
-        toast.error(getErrorMessage(error) || String(error));
-      }
+      uploadLocalEntriesToTarget(
+        { sessionId: activeSessionId, remoteDir: targetDir },
+        resolved.map((entry) => ({ path: entry.path, isDir: entry.isDir })),
+      );
       return;
     }
 

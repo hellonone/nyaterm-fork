@@ -228,6 +228,40 @@ export async function resolveRemoteMoveTargets(
   return moves;
 }
 
+/**
+ * Check which of the given remote entries no longer exist on the source
+ * session. A failed `list_remote_dir` (e.g. transient network error) is treated
+ * as "cannot verify" and the entry is NOT reported missing, to avoid blocking a
+ * paste on a flaky connection. Returns entries whose parent directory was
+ * listed successfully but that were not found in it.
+ */
+export async function findMissingRemoteEntries(
+  sessionId: string,
+  entries: Array<{ name: string; path: string }>,
+): Promise<Array<{ name: string; path: string }>> {
+  if (entries.length === 0) {
+    return [];
+  }
+
+  const missing: Array<{ name: string; path: string }> = [];
+  for (const entry of entries) {
+    const parentDir = getRemoteParentDirectory(entry.path);
+    try {
+      const listed = await invoke<FileEntry[]>("list_remote_dir", {
+        sessionId,
+        path: parentDir,
+      });
+      if (!listed.some((item) => item.name === entry.name)) {
+        missing.push(entry);
+      }
+    } catch {
+      // Cannot verify existence: do not report as missing.
+    }
+  }
+
+  return missing;
+}
+
 async function listRemoteDirNames(sessionId: string, dirPath: string): Promise<Set<string>> {
   try {
     const entries = await invoke<FileEntry[]>("list_remote_dir", {
