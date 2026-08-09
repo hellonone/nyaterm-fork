@@ -870,6 +870,8 @@
     "pasteCrossSessionMoveUnsupported": "不支援跨工作階段移動檔案",
     "pasteRemoteOnly": "貼上僅支援遠端檔案瀏覽器",
     "pasteSameDirectory": "不能貼上到同一目錄",
+    "pasteSourceMissing": "{{count}} 個來源檔案已不存在：{{names}}",
+    "pasteSourceMissingSkipped": "{{count}} 個檔案已不存在，已略過",
     "permGroup": "組",
     "permOther": "其他",
     "permSticky": "粘性",

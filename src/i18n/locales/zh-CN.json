@@ -870,6 +870,8 @@
     "pasteCrossSessionMoveUnsupported": "不支持跨会话移动文件",
     "pasteRemoteOnly": "粘贴仅支持远程文件浏览器",
     "pasteSameDirectory": "不能粘贴到同一目录",
+    "pasteSourceMissing": "{{count}} 个源文件已不存在：{{names}}",
+    "pasteSourceMissingSkipped": "{{count}} 个文件已不存在，已跳过",
     "permGroup": "组",
     "permOther": "其他",
     "permSticky": "粘性",
