@@ -150,6 +150,7 @@ pub fn run() {
             cmd::clipboard::write_clipboard_text,
             cmd::clipboard::read_clipboard_path_payload,
             cmd::clipboard::upload_clipboard_image_to_ssh,
+            cmd::file_clipboard::read_clipboard_file_paths,
             cmd::log::append_frontend_logs,
             cmd::log::export_diagnostics,
             cmd::note::list_note_tree,
