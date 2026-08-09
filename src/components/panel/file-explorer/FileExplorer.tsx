@@ -1858,26 +1858,14 @@ function FileExplorerPane({
     [activeSessionId],
   );
 
-  const handleCopyFromContextMenu = useCallback(
-    (entry: FileEntry) => {
+  const handleCopyCutFromContextMenu = useCallback(
+    (entry: FileEntry, mode: SftpClipboardMode) => {
       const entries = isParentDirectoryEntry(entry)
         ? []
         : selectedFiles.size > 1 && selectedFiles.has(entry.name)
           ? filteredSortedFiles.filter((file) => selectedFiles.has(file.name))
           : [entry];
-      handleCopyEntries(entries, "copy");
-    },
-    [filteredSortedFiles, handleCopyEntries, selectedFiles],
-  );
-
-  const handleCutFromContextMenu = useCallback(
-    (entry: FileEntry) => {
-      const entries = isParentDirectoryEntry(entry)
-        ? []
-        : selectedFiles.size > 1 && selectedFiles.has(entry.name)
-          ? filteredSortedFiles.filter((file) => selectedFiles.has(file.name))
-          : [entry];
-      handleCopyEntries(entries, "cut");
+      handleCopyEntries(entries, mode);
     },
     [filteredSortedFiles, handleCopyEntries, selectedFiles],
   );
@@ -1919,20 +1907,7 @@ function FileExplorerPane({
         toast.error(t("fileExplorer.pasteCrossSessionMoveUnsupported"));
         return;
       }
-    } else if (osObservation.hasFiles) {
-      const confirmedUpload = await showPasteConfirm({
-        action: "upload",
-        count: osObservation.paths.length,
-        targetDir,
-        fileNames: osObservation.paths.map((path) => getLocalPathName(path, path)),
-      });
-      if (!confirmedUpload) {
-        return;
-      }
-    }
 
-    if (isSftpPaste) {
-      const { sessionId: sourceSessionId, mode, entries } = sftpClipboard;
       const confirmed = await showPasteConfirm({
         action: mode === "cut" ? "move" : "copy",
         count: entries.length,
@@ -1964,7 +1939,6 @@ function FileExplorerPane({
           clearSftpClipboard();
           invalidateDirectoryChildrenCache(targetDir);
           await loadDirectory(targetDir, { history: "preserve" });
-          void refreshCurrentDirectory();
         }
         return;
       }
@@ -1993,6 +1967,16 @@ function FileExplorerPane({
 
     // 2. OS clipboard file paths → upload to this directory.
     if (osObservation.hasFiles) {
+      const confirmedUpload = await showPasteConfirm({
+        action: "upload",
+        count: osObservation.paths.length,
+        targetDir,
+        fileNames: osObservation.paths.map((path) => getLocalPathName(path, path)),
+      });
+      if (!confirmedUpload) {
+        return;
+      }
+
       try {
         const resolved = await resolveLocalDropPaths(osObservation.paths);
         if (resolved.length === 0) {
@@ -2017,7 +2001,6 @@ function FileExplorerPane({
     enqueueCopies,
     invalidateDirectoryChildrenCache,
     loadDirectory,
-    refreshCurrentDirectory,
     resolveLocalDropPaths,
     t,
     uploadLocalEntriesToTarget,
@@ -3124,8 +3107,8 @@ function FileExplorerPane({
                           onUpload={handleUploadFiles}
                           onUploadFolder={handleUploadFolder}
                           onDownload={handleDownloadFromContextMenu}
-                          onCopy={handleCopyFromContextMenu}
-                          onCut={handleCutFromContextMenu}
+                          onCopy={(entry) => handleCopyCutFromContextMenu(entry, "copy")}
+                          onCut={(entry) => handleCopyCutFromContextMenu(entry, "cut")}
                           onPaste={() => void handlePaste()}
                           showSftpClipboardActions={isRemoteFileBrowser}
                           pasteDisabled={!canPaste}
