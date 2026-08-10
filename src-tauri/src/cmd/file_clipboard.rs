@@ -68,8 +68,11 @@ fn parse_clipboard_path_text_line(line: &str) -> Option<PathBuf> {
         .unwrap_or(line);
 
     if let Some(uri_path) = unwrapped.strip_prefix("file://") {
-        let local_uri_path = uri_path.strip_prefix("localhost/").unwrap_or(uri_path);
-        let decoded = urlencoding::decode(local_uri_path).ok()?;
+        let local_uri_path = match uri_path.strip_prefix("localhost/") {
+            Some(path) => format!("/{path}"),
+            None => uri_path.to_string(),
+        };
+        let decoded = urlencoding::decode(&local_uri_path).ok()?;
         return Some(PathBuf::from(decoded.as_ref()));
     }
 
