@@ -33,12 +33,35 @@ fn read_clipboard_file_paths_blocking() -> Vec<String> {
 
     #[cfg(not(target_os = "windows"))]
     {
+        if let Some(paths) = read_clipboard_native_file_paths() {
+            return paths;
+        }
         if let Some(paths) = read_clipboard_text_file_paths() {
             return paths;
         }
     }
 
     Vec::new()
+}
+
+/// Read the native file list from the clipboard. On macOS, Finder puts file
+/// URLs on the pasteboard rather than plain text, so the text parser alone
+/// would never see them. Returns `None` when the clipboard holds no native
+/// file list (e.g. plain text or images).
+#[cfg(not(target_os = "windows"))]
+fn read_clipboard_native_file_paths() -> Option<Vec<String>> {
+    let mut clipboard = arboard::Clipboard::new().ok()?;
+    match clipboard.get().ok()? {
+        arboard::Content::Files(files) => Some(
+            files
+                .into_iter()
+                .filter_map(|file| file.path)
+                .filter(|path| path.exists())
+                .map(|path| path.to_string_lossy().to_string())
+                .collect(),
+        ),
+        _ => None,
+    }
 }
 
 #[cfg(not(target_os = "windows"))]
