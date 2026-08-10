@@ -63,6 +63,10 @@ export function PasteConfirmDialog() {
         className="w-[min(22rem,calc(100vw-2rem))] sm:max-w-md"
         onKeyDown={(event) => {
           if (event.key === "Enter" && request) {
+            if (event.target instanceof Element && event.target.closest("button")) {
+              // Let the focused button run its own action (e.g. Cancel).
+              return;
+            }
             event.preventDefault();
             handleConfirm();
           }
