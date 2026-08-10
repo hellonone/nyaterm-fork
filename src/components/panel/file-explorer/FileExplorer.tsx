@@ -88,10 +88,7 @@ import {
 } from "@/lib/sftpClipboard";
 import { matchesKeyEvent } from "@/lib/shortcutRegistry";
 import { getSessionInputPeerIds } from "@/lib/syncInputGroups";
-import {
-  findMissingRemoteEntries,
-  resolveRemoteMoveTargets,
-} from "@/lib/transferDuplicateResolution";
+import { findMissingRemoteEntries } from "@/lib/transferDuplicateResolution";
 import { cn, formatSize } from "@/lib/utils";
 import type { FileWindowTarget } from "@/lib/windowManager";
 import { openAutoUpload, openFilePreview, openRemoteFileEditor } from "@/lib/windowManager";
@@ -1906,10 +1903,6 @@ function FileExplorerPane({
           return;
         }
       }
-      if (mode === "cut" && sourceSessionId !== activeSessionId) {
-        toast.error(t("fileExplorer.pasteCrossSessionMoveUnsupported"));
-        return;
-      }
 
       const missingSources = await findMissingRemoteEntries(sourceSessionId, entries);
       if (missingSources.length > 0) {
@@ -1935,19 +1928,17 @@ function FileExplorerPane({
 
       if (mode === "cut") {
         try {
-          const moves = await resolveRemoteMoveTargets({
-            sessionId: sourceSessionId,
+          await invoke("move_remote_entries", {
+            sourceSessionId,
+            targetSessionId: activeSessionId,
             targetDir,
-            entries,
+            entries: entries.map((entry) => ({
+              name: entry.name,
+              path: entry.path,
+              isDirectory: entry.isDirectory,
+            })),
             duplicateStrategy: appSettings.transfer.duplicate_strategy,
           });
-          for (const move of moves) {
-            await invoke("rename_remote_file", {
-              sessionId: sourceSessionId,
-              oldPath: move.oldPath,
-              newPath: move.newPath,
-            });
-          }
         } catch (error) {
           toast.error(getErrorMessage(error) || String(error));
         } finally {
