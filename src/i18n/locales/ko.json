@@ -864,7 +864,6 @@
     "pasteConfirmUploadAction": "업로드",
     "pasteConfirmUploadDesc": "{{count}}개 항목을 이 디렉터리에 업로드하시겠습니까?",
     "pasteConfirmUploadTitle": "파일 업로드",
-    "pasteCrossSessionMoveUnsupported": "세션 간 파일 이동은 지원되지 않습니다",
     "pasteRemoteOnly": "붙여넣기는 원격 파일 브라우저에서만 지원됩니다",
     "pasteSameDirectory": "같은 디렉터리에 붙여넣을 수 없습니다",
     "pasteSourceMissing": "원본 항목 {{count}}개가 더 이상 존재하지 않습니다: {{names}}",

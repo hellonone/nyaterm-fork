@@ -868,7 +868,6 @@
     "pasteConfirmUploadAction": "Upload",
     "pasteConfirmUploadDesc": "Upload {{count}} item(s) to this directory?",
     "pasteConfirmUploadTitle": "Upload files",
-    "pasteCrossSessionMoveUnsupported": "Moving files across sessions is not supported",
     "pasteRemoteOnly": "Paste is only supported in the remote file browser",
     "pasteSameDirectory": "Cannot paste into the same directory",
     "pasteSourceMissing": "{{count}} source item(s) no longer exist: {{names}}",

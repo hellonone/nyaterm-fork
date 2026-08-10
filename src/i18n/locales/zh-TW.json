@@ -867,7 +867,6 @@
     "pasteConfirmUploadAction": "上傳",
     "pasteConfirmUploadDesc": "將 {{count}} 項上傳到此目錄？",
     "pasteConfirmUploadTitle": "上傳檔案",
-    "pasteCrossSessionMoveUnsupported": "不支援跨工作階段移動檔案",
     "pasteRemoteOnly": "貼上僅支援遠端檔案瀏覽器",
     "pasteSameDirectory": "不能貼上到同一目錄",
     "pasteSourceMissing": "{{count}} 個來源檔案已不存在：{{names}}",
