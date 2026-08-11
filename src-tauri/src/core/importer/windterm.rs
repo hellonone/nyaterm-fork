@@ -122,6 +122,8 @@ fn parse_windterm_content_with_crypto(
                 username,
                 backspace_mode: "del".to_string(),
                 x11_forwarding,
+                agent_endpoint: config::SshAgentEndpoint::Auto,
+                agent_forwarding: false,
                 encoding: String::new(),
             },
             group_path,

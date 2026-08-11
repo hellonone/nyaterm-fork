@@ -44,6 +44,7 @@ import type {
   AppSettings,
   Group,
   PaneSplitDirection,
+  RdpSessionPane,
   SavedConnection,
   SessionPane,
   SyncGroup,
@@ -55,6 +56,10 @@ import { invoke } from "../lib/invoke";
 import { logger, setLoggerLevel } from "../lib/logger";
 import { DEFAULT_TERMINAL_FONT_SIZE } from "../lib/terminalFontSize";
 import { isPrimaryMainWindow } from "../lib/windowManager";
+
+type PaneConnectingUpdates = Partial<Pick<SessionPane, "name" | "type" | "connectionId">> & {
+  display?: RdpSessionPane["display"];
+};
 
 interface AppContextType {
   // Tabs
@@ -76,6 +81,7 @@ interface AppContextType {
     connectionId?: string,
     extra?: Partial<Pick<Tab, "customName" | "tabColor">>,
     options?: { afterTabId?: string },
+    paneOverrides?: Partial<SessionPane>,
   ) => PendingTabCreation;
   /** Swap the active pane's temporary sessionId for the real one and clear the connecting flag. */
   updateTabSession: (tabId: string, sessionId: string) => void;
@@ -89,7 +95,7 @@ interface AppContextType {
   markPaneConnecting: (
     tabId: string,
     paneId: string,
-    updates?: Partial<Pick<SessionPane, "name" | "type" | "connectionId">>,
+    updates?: PaneConnectingUpdates,
   ) => string | null;
   hasTab: (tabId: string) => boolean;
   hasPane: (tabId: string, paneId: string) => boolean;
@@ -778,9 +784,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       connectionId?: string,
       extra?: Partial<Pick<Tab, "customName" | "tabColor">>,
       options?: { afterTabId?: string },
+      paneOverrides?: Partial<SessionPane>,
     ): PendingTabCreation => {
       const createRequestId = createSessionRequestId();
       const pane = createSessionPane(name, type, connectionId, {
+        ...paneOverrides,
         connecting: true,
         createRequestId,
       });
@@ -880,11 +888,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
 
   const markPaneConnecting = useCallback(
-    (
-      tabId: string,
-      paneId: string,
-      updates?: Partial<Pick<SessionPane, "name" | "type" | "connectionId">>,
-    ) => {
+    (tabId: string, paneId: string, updates?: PaneConnectingUpdates) => {
       const createRequestId = createSessionRequestId();
       const nextTabs = tabsRef.current.map((tab) =>
         tab.id === tabId

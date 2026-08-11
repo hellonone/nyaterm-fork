@@ -4,7 +4,28 @@ import { MOD, resolveIndexedKeys } from "@/lib/shortcutRegistry";
 
 export { MOD };
 
-const HOTKEY_OPTIONS = { enableOnFormTags: true, preventDefault: true } as const;
+const RDP_INPUT_ROOT_SELECTOR = '[data-rdp-input-root="true"]';
+
+function isElement(value: EventTarget | null): value is Element {
+  return value instanceof Element;
+}
+
+function isInsideRdpInputRoot(event: KeyboardEvent) {
+  if (
+    event
+      .composedPath()
+      .some((target) => isElement(target) && target.matches(RDP_INPUT_ROOT_SELECTOR))
+  ) {
+    return true;
+  }
+  return isElement(event.target) && event.target.closest(RDP_INPUT_ROOT_SELECTOR) !== null;
+}
+
+const HOTKEY_OPTIONS = {
+  enableOnFormTags: true,
+  preventDefault: true,
+  ignoreEventWhen: isInsideRdpInputRoot,
+} as const;
 
 export interface ShortcutCallbacks {
   onNewSession: () => void;

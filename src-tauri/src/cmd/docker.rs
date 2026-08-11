@@ -868,6 +868,7 @@ fn ssh_auth_password(auth: &SshAuth) -> Option<String> {
             password: Some(password),
         } if !password.is_empty() => Some(password.clone()),
         SshAuth::None | SshAuth::Password { .. } | SshAuth::Key { .. } => None,
+        SshAuth::Agent => None,
     }
 }
 

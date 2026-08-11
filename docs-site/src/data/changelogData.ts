@@ -10,6 +10,52 @@ export type ChangelogRelease = {
 
 const changelogReleasesEn: ChangelogRelease[] = [
   {
+    version: '[1.2.1] - 2026-08-11',
+    sections: [
+      {
+        title: 'Added',
+        items: [
+          '**rdp:** Add RDP sessions with workspace integration, certificate verification, text clipboard support, fit-window/fixed display modes, bounded reconnects, and improved keyboard/IME handling.',
+          '**ssh:** Add SSH Agent authentication and forwarding, plus SSH profiles and terminal type selection for server and network-device workflows.',
+          '**cloud-sync:** Add current remote snapshot metadata, automatic pull of remote-only changes, conflict recovery actions, and snapshot cleanup for legacy objects.',
+          '**terminal:** Add a high-volume output drain, gutter refresh support, timestamp restoration, command suggestion shortcuts, new tab/view commands, and quick switcher scrolling.',
+          '**recording:** Add per-connection recording settings and expand capture, formatting, search, and test support.',
+          '**quick-commands:** Add category movement, sorting, export support, validation improvements, and import merge behavior that preserves categories.',
+          '**saved-connections:** Add expand/collapse-all folder actions with persisted expansion state.',
+          '**file-explorer:** Add selected and total size statistics in the file explorer footer.',
+          '**macos-menu:** Add native macOS menu handling and window-management commands.',
+          '**serial-send:** Enhance serial send state management.',
+        ],
+      },
+      {
+        title: 'Changed',
+        items: [
+          '**settings:** Share draft-state handling across settings pages so manual sync actions and unsaved changes are coordinated more consistently.',
+          '**layout:** Improve resize handle interaction styling and ActivityBar background consistency.',
+          '**claude:** Refactor Claude Code invocation handling for agent execution flows.',
+          '**i18n:** Add and refresh localization for RDP, SSH Agent/profile settings, cloud sync recovery, recording, terminal suggestions, file selection totals, macOS menus, and quick-command export.',
+        ],
+      },
+      {
+        title: 'Fixed',
+        items: [
+          '**rdp:** Improve cursor handling, viewport resizing, and keyboard input behavior.',
+          '**ssh:** Increase command injection timeout to improve reliability on slower shells.',
+          '**app-context:** Restrict screen locking to the primary main window.',
+          '**about:** Improve support information handling and display.',
+        ],
+      },
+      {
+        title: 'Performance',
+        items: ['**terminal:** Improve responsiveness during large output bursts with more efficient output draining.'],
+      },
+      {
+        title: 'Documentation',
+        items: ['**readme:** Add Discord and WeChat group badges for community engagement.'],
+      },
+    ],
+  },
+  {
     version: '[1.2.0] - 2026-08-04',
     sections: [
       {
@@ -1787,6 +1833,52 @@ const changelogReleasesEn: ChangelogRelease[] = [
 ];
 
 const changelogReleasesZhCN: ChangelogRelease[] = [
+  {
+    version: '[1.2.1] - 2026-08-11',
+    sections: [
+      {
+        title: '新增',
+        items: [
+          '**rdp:** 新增 RDP 会话，支持工作区集成、证书验证、文本剪贴板、适应窗口 / 固定尺寸显示、有限重连以及更好的键盘与 IME 处理。',
+          '**ssh:** 新增 SSH Agent 认证与转发，并加入 SSH 连接类型和终端类型选择，便于区分标准服务器和网络设备工作流。',
+          '**cloud-sync:** 新增当前云端快照元数据、仅远端变更时自动拉取、冲突恢复动作，以及旧快照对象清理。',
+          '**terminal:** 新增大输出 drain、gutter 刷新、时间戳恢复、命令建议快捷键、新建标签 / 视图命令和快速切换器滚动能力。',
+          '**recording:** 新增按连接配置录制，并扩展录制捕获、格式化、搜索和测试支持。',
+          '**quick-commands:** 新增分类移动、排序、导出、校验优化，以及导入合并时保留分类的行为。',
+          '**saved-connections:** 新增展开 / 折叠全部文件夹，并持久化展开状态。',
+          '**file-explorer:** 在文件浏览器底部新增已选文件大小与总大小统计。',
+          '**macos-menu:** 新增原生 macOS 菜单处理和窗口管理命令。',
+          '**serial-send:** 增强串口发送面板的状态管理。',
+        ],
+      },
+      {
+        title: '变更',
+        items: [
+          '**settings:** 共享设置草稿状态处理，让手动同步操作和未保存变更之间的协调更一致。',
+          '**layout:** 优化 ResizeHandle 交互样式，并统一 ActivityBar 背景表现。',
+          '**claude:** 重构 Claude Code 调用处理，改进 Agent 执行流程。',
+          '**i18n:** 补充和刷新 RDP、SSH Agent / 连接类型、云同步恢复、录制、终端建议、文件选择统计、macOS 菜单和快捷命令导出的多语言文案。',
+        ],
+      },
+      {
+        title: '修复',
+        items: [
+          '**rdp:** 改进光标处理、视口缩放和键盘输入行为。',
+          '**ssh:** 提高命令注入超时时间，改善慢速 shell 下的可靠性。',
+          '**app-context:** 限制屏幕锁只作用于主窗口。',
+          '**about:** 改进支持信息处理与展示。',
+        ],
+      },
+      {
+        title: '性能',
+        items: ['**terminal:** 通过更高效的输出 drain 改善大输出突发时的响应性。'],
+      },
+      {
+        title: '文档',
+        items: ['**readme:** 添加 Discord 和微信群徽章，方便社区入口访问。'],
+      },
+    ],
+  },
   {
     version: '[1.2.0] - 2026-08-04',
     sections: [

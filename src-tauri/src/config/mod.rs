@@ -30,8 +30,10 @@ pub use connection::{
     AssetDisk, AssetDiskKind, AssetDiskPurpose, AssetMetadata, ConnectionAuth, ConnectionNetwork,
     ConnectionRecordingSettings, ConnectionType, Group, MAX_SFTP_SHELL_DETECTION_TIMEOUT_MS,
     MIN_SFTP_SHELL_DETECTION_TIMEOUT_MS, SavedConnection, SessionsConfig, SftpCwdFollowMode,
-    SftpSettings, SshAlgorithmMode, SshAlgorithmPreferences, TelnetAutoLoginConfig, load_config,
-    load_connection_by_id, load_sessions, resolve_connection_encoding, save_config, save_sessions,
+    SftpSettings, SshAgentEndpoint, SshAlgorithmMode, SshAlgorithmPreferences, SshProfile,
+    SshTerminalType, TelnetAutoLoginConfig, effective_cwd_follow_mode,
+    effective_cwd_follow_mode_for_profile, load_config, load_connection_by_id, load_sessions,
+    resolve_connection_encoding, resolve_ssh_terminal_type, save_config, save_sessions,
 };
 #[allow(unused_imports)]
 pub use credential::{

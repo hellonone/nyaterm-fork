@@ -4,6 +4,47 @@ All notable changes to this project will be documented in this file.
 
 This changelog is inferred from release bump commits in git history (for example `chore: bump version to vX.Y.Z`) and grouped by Conventional Commit type.
 
+## [1.2.1] - 2026-08-11
+
+### Added
+
+- **rdp:** Add RDP sessions with workspace integration, certificate verification, text clipboard support, fit-window/fixed display modes, bounded reconnects, and improved keyboard/IME handling.
+- **ssh:** Add SSH Agent authentication and forwarding, including platform-aware endpoint selection, hardware-key approval prompts, retry handling, and device-local sync behavior.
+- **ssh:** Add SSH connection profiles and terminal type selection so network devices can disable Linux-shell-only helpers without changing saved SFTP preferences.
+- **cloud-sync:** Add current-remote-snapshot metadata, automatic pull of remote-only changes, conflict recovery actions, snapshot management, migration, and garbage collection for legacy snapshot objects.
+- **terminal:** Add a high-volume terminal output drain, gutter refresh support, timestamp restoration, command suggestion shortcuts, new tab/view commands, and session quick switcher scrolling.
+- **recording:** Add per-connection recording settings and expand recording capture, formatting, search, and test support.
+- **quick-commands:** Add category management improvements, category movement and sorting, export support, and merge behavior that preserves imported categories.
+- **saved-connections:** Add expand/collapse-all folder actions with persisted expansion state.
+- **file-explorer:** Add footer statistics for selected and total file sizes.
+- **macos-menu:** Add native macOS menu handling and window-management commands.
+- **serial-send:** Enhance the serial send panel with dedicated state management.
+- **about:** Add support information and community entry points.
+
+### Changed
+
+- **settings:** Introduce shared draft-state handling for settings pages so manual sync actions and unsaved changes are coordinated more consistently.
+- **layout:** Improve resize handle styling/interactions and align ActivityBar background styling.
+- **claude:** Refactor Claude Code invocation handling for agent execution flows.
+- **saved-connections:** Simplify saved-connection expansion state handling and remove stale last-opened connection state.
+- **quick-commands:** Optimize command suffix stripping and category validation behavior.
+- **i18n:** Add and refresh localization strings for RDP, SSH Agent/profile settings, cloud-sync recovery, recording, terminal suggestions, file selection totals, macOS menu actions, and quick-command export.
+
+### Fixed
+
+- **rdp:** Improve cursor handling, viewport resizing, and keyboard input behavior.
+- **ssh:** Increase command injection timeout to improve reliability on slower shells.
+- **app-context:** Restrict screen locking to the primary main window.
+- **about:** Improve support information handling and display.
+
+### Performance
+
+- **terminal:** Improve responsiveness during large output bursts by batching and draining terminal output more efficiently.
+
+### Documentation
+
+- **readme:** Add Discord and WeChat group badges for community engagement.
+
 ## [1.2.0] - 2026-08-04
 
 ### Added

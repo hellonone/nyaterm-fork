@@ -3,6 +3,7 @@
 //! Split by concern so connection setup, auth flow, and terminal I/O remain
 //! independently maintainable as the SSH feature set grows.
 
+mod agent;
 mod auth;
 mod client;
 mod io;
@@ -12,7 +13,10 @@ mod tunnel;
 pub(crate) mod x11_forwarding;
 
 pub(crate) use auth::load_saved_ssh_config;
-pub use auth::{PendingAuthManager, PendingSshAuthManager, SshAuthResponse};
+pub use auth::{
+    PendingAuthManager, PendingSshAgentAuthManager, PendingSshAuthManager, SshAgentAuthAction,
+    SshAuthResponse,
+};
 pub use client::{HostKeyVerifyManager, SupportedSshAlgorithms, get_supported_ssh_algorithms};
 pub(crate) use client::{
     RemoteForwardOpen, SshAuth, SshConfig, SshConnectionHandles, SshHandle, SshRawHandle,

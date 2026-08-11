@@ -14,6 +14,7 @@ import {
 import { ConnectionCombobox, type ConnectionOption } from "@/components/network/shared";
 import { KeyManagementTab } from "@/components/panel/security-auth/KeyManagementTab";
 import { PasswordManagementTab } from "@/components/panel/security-auth/PasswordManagementTab";
+import { ConnectionRecordingSettings } from "@/components/sessions/ConnectionRecordingSettings";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -47,16 +48,21 @@ import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { invoke } from "@/lib/invoke";
+import { isLinux, isMacOS, isWindows } from "@/lib/platform";
 import { cn } from "@/lib/utils";
 import type {
   AlgorithmOption,
   OtpEntry,
   ProxyConfig,
+  RecordingMode,
   SavedPassword,
   SftpSettings,
   SshAlgorithmDefaults,
   SshAlgorithmPreferences,
+  SshAgentEndpoint,
   SshKey,
+  SshProfile,
+  SshTerminalType,
   SupportedSshAlgorithms,
 } from "@/types/global";
 
@@ -64,8 +70,15 @@ const MASKED_PASSWORD_PLACEHOLDER = "••••••••";
 const DEFAULT_SFTP_SHELL_DETECTION_TIMEOUT_MS = 3000;
 const MIN_SFTP_SHELL_DETECTION_TIMEOUT_MS = 100;
 const MAX_SFTP_SHELL_DETECTION_TIMEOUT_MS = 60_000;
-export type SshAuthMode = "none" | "password" | "key";
+export type SshAuthMode = "none" | "password" | "key" | "agent";
 type PasswordSource = "ask" | "direct" | "saved";
+type SshTerminalTypeSelection = SshTerminalType | "default";
+
+function isSupportedSshAgentEndpoint(type: SshAgentEndpoint["type"]): boolean {
+  if (type === "auto") return true;
+  if (isWindows) return type === "pageant" || type === "windows_open_ssh";
+  return (isMacOS || isLinux) && (type === "environment" || type === "unix_socket");
+}
 
 interface SshFormProps {
   host: string;
@@ -107,10 +120,24 @@ interface SshFormProps {
   setBackspaceMode: (v: string) => void;
   x11Forwarding: boolean;
   setX11Forwarding: (v: boolean) => void;
+  agentEndpoint: SshAgentEndpoint;
+  setAgentEndpoint: (v: SshAgentEndpoint) => void;
+  agentForwarding: boolean;
+  setAgentForwarding: (v: boolean) => void;
   sshAlgorithms: SshAlgorithmPreferences;
   setSshAlgorithms: (v: SshAlgorithmPreferences) => void;
+  sshProfile: SshProfile;
+  setSshProfile: (v: SshProfile) => void;
+  sshTerminalType: SshTerminalTypeSelection;
+  setSshTerminalType: (v: SshTerminalTypeSelection) => void;
   sftpSettings: SftpSettings;
   setSftpSettings: (v: SftpSettings) => void;
+  recordingUseGlobal: boolean;
+  setRecordingUseGlobal: (v: boolean) => void;
+  recordingAutoStart: boolean;
+  setRecordingAutoStart: (v: boolean) => void;
+  recordingMode: RecordingMode;
+  setRecordingMode: (v: RecordingMode) => void;
   connectionId?: string;
   encoding: string;
   setEncoding: (v: string) => void;
@@ -429,10 +456,24 @@ export function SshForm({
   setBackspaceMode,
   x11Forwarding,
   setX11Forwarding,
+  agentEndpoint,
+  setAgentEndpoint,
+  agentForwarding,
+  setAgentForwarding,
   sshAlgorithms,
   setSshAlgorithms,
+  sshProfile,
+  setSshProfile,
+  sshTerminalType,
+  setSshTerminalType,
   sftpSettings,
   setSftpSettings,
+  recordingUseGlobal,
+  setRecordingUseGlobal,
+  recordingAutoStart,
+  setRecordingAutoStart,
+  recordingMode,
+  setRecordingMode,
   connectionId,
   encoding,
   setEncoding,
@@ -529,8 +570,22 @@ export function SshForm({
     }
   }, [setSshAlgorithms, sshAlgorithms, supportedAlgorithms]);
 
+  useEffect(() => {
+    if (!isSupportedSshAgentEndpoint(agentEndpoint.type)) {
+      setAgentEndpoint({ type: "auto" });
+    }
+  }, [agentEndpoint.type, setAgentEndpoint]);
+
   const selectedKeyName = sshKeys.find((k) => k.id === keyId)?.name;
   const selectedPasswordName = savedPasswords.find((p) => p.id === passwordId)?.name;
+  const availableAgentEndpointTypes: SshAgentEndpoint["type"][] = isWindows
+    ? ["auto", "pageant", "windows_open_ssh"]
+    : isMacOS || isLinux
+      ? ["auto", "environment", "unix_socket"]
+      : ["auto"];
+  const visibleAgentEndpointType = isSupportedSshAgentEndpoint(agentEndpoint.type)
+    ? agentEndpoint.type
+    : "auto";
   const proxyOptions = proxies.map((proxy) => ({
     id: proxy.id,
     label: proxy.name,
@@ -566,6 +621,9 @@ export function SshForm({
       [key]: value,
     });
   };
+  const networkDeviceProfile = sshProfile === "network_device";
+  const sftpDisabled = !sftpSettings.enabled || networkDeviceProfile;
+  const defaultTerminalType = networkDeviceProfile ? "vt100" : "xterm-256color";
 
   const toggleDirectPasswordVisibility = async () => {
     if (showDirectPassword) {
@@ -651,7 +709,7 @@ export function SshForm({
           }}
           className="w-full mt-1"
         >
-          <TabsList className="grid w-full grid-cols-3 h-8 pointer-events-auto">
+          <TabsList className="grid h-8 w-full grid-cols-4 pointer-events-auto">
             <TabsTrigger value="none" className="text-xs">
               {t("dialog.noAuthentication", "None")}
             </TabsTrigger>
@@ -660,6 +718,9 @@ export function SshForm({
             </TabsTrigger>
             <TabsTrigger value="key" className="text-xs">
               {t("dialog.privateKey")}
+            </TabsTrigger>
+            <TabsTrigger value="agent" className="text-xs">
+              {t("dialog.sshAgent", "SSH Agent")}
             </TabsTrigger>
           </TabsList>
 
@@ -912,6 +973,11 @@ export function SshForm({
               </PopoverContent>
             </Popover>
           </TabsContent>
+          <TabsContent value="agent" className="mt-3 border-0 outline-none">
+            <div className="rounded-lg border bg-accent/25 p-3 text-xs text-muted-foreground">
+              {t("dialog.sshAgentAuthDesc", "Use an identity managed by the local SSH Agent.")}
+            </div>
+          </TabsContent>
         </Tabs>
       </div>
 
@@ -924,7 +990,7 @@ export function SshForm({
         </CollapsibleTrigger>
         <CollapsibleContent className="mt-3 space-y-3">
           <Tabs defaultValue="proxy" className="w-full">
-            <TabsList className="grid h-8 w-full grid-cols-3 pointer-events-auto">
+            <TabsList className="grid h-8 w-full grid-cols-4 pointer-events-auto">
               <TabsTrigger value="proxy" className="text-xs">
                 {t("dialog.proxySelect")}
               </TabsTrigger>
@@ -933,6 +999,9 @@ export function SshForm({
               </TabsTrigger>
               <TabsTrigger value="two-factor" className="text-xs">
                 {t("dialog.twoFactorAuth")}
+              </TabsTrigger>
+              <TabsTrigger value="agent" className="text-xs">
+                {t("dialog.sshAgent", "SSH Agent")}
               </TabsTrigger>
             </TabsList>
 
@@ -955,6 +1024,96 @@ export function SshForm({
                     />
                   </div>
                 </div>
+              </div>
+            </TabsContent>
+
+            <TabsContent value="agent" className="mt-3 border-0 outline-none">
+              <div className="space-y-3 rounded-lg border bg-accent/25 p-3">
+                <div>
+                  <Label className="text-xs font-medium text-foreground/80">
+                    {t("dialog.sshAgentEndpoint", "Agent endpoint")}
+                  </Label>
+                  <Select
+                    value={visibleAgentEndpointType}
+                    onValueChange={(type) => {
+                      if (type === "auto") setAgentEndpoint({ type: "auto" });
+                      if (type === "environment")
+                        setAgentEndpoint({ type: "environment", variable: "SSH_AUTH_SOCK" });
+                      if (type === "unix_socket")
+                        setAgentEndpoint({ type: "unix_socket", path: "" });
+                      if (type === "pageant") setAgentEndpoint({ type: "pageant" });
+                      if (type === "windows_open_ssh")
+                        setAgentEndpoint({ type: "windows_open_ssh" });
+                    }}
+                  >
+                    <SelectTrigger className="mt-1 h-8 text-xs font-normal">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="auto">{t("dialog.sshAgentAuto", "Automatic")}</SelectItem>
+                      {availableAgentEndpointTypes.includes("environment") && (
+                        <SelectItem value="environment">
+                          {t("dialog.sshAgentEnvironment", "Environment variable")}
+                        </SelectItem>
+                      )}
+                      {availableAgentEndpointTypes.includes("unix_socket") && (
+                        <SelectItem value="unix_socket">
+                          {t("dialog.sshAgentUnixSocket", "Unix domain socket")}
+                        </SelectItem>
+                      )}
+                      {availableAgentEndpointTypes.includes("pageant") && (
+                        <SelectItem value="pageant">
+                          {t("dialog.sshAgentPageant", "Pageant")}
+                        </SelectItem>
+                      )}
+                      {availableAgentEndpointTypes.includes("windows_open_ssh") && (
+                        <SelectItem value="windows_open_ssh">
+                          {t("dialog.sshAgentWindowsOpenSsh", "Windows OpenSSH Agent")}
+                        </SelectItem>
+                      )}
+                    </SelectContent>
+                  </Select>
+                </div>
+                {agentEndpoint.type === "environment" && (
+                  <Input
+                    value={agentEndpoint.variable}
+                    onChange={(event) =>
+                      setAgentEndpoint({ type: "environment", variable: event.target.value })
+                    }
+                    placeholder="SSH_AUTH_SOCK"
+                    className="h-8 text-xs"
+                  />
+                )}
+                {agentEndpoint.type === "unix_socket" && (
+                  <Input
+                    value={agentEndpoint.path}
+                    onChange={(event) =>
+                      setAgentEndpoint({ type: "unix_socket", path: event.target.value })
+                    }
+                    placeholder="/tmp/ssh-XXXXXX/agent.YYYY"
+                    className="h-8 text-xs"
+                  />
+                )}
+                <div className="flex items-start justify-between gap-3 border-t pt-3">
+                  <div className="min-w-0">
+                    <div className="text-xs font-medium">
+                      {t("dialog.sshAgentForwarding", "Allow agent forwarding")}
+                    </div>
+                    <p className="text-[0.6875rem] leading-relaxed text-muted-foreground">
+                      {t(
+                        "dialog.sshAgentForwardingDesc",
+                        "Forward this local Agent to the remote server.",
+                      )}
+                    </p>
+                  </div>
+                  <Switch checked={agentForwarding} onCheckedChange={setAgentForwarding} />
+                </div>
+                <p className="mt-2 text-[0.6875rem] leading-relaxed text-amber-600 dark:text-amber-300">
+                  {t(
+                    "dialog.sshAgentForwardingWarning",
+                    "Agent forwarding lets remote processes use the local Agent's signing capability through SSH. Enable it only for trusted servers and keep it disabled when it is not needed. The Agent endpoint and forwarding switch are device-local connection settings; hardware keys and private keys are never synchronized to the cloud.",
+                  )}
+                </p>
               </div>
             </TabsContent>
 
@@ -1100,7 +1259,67 @@ export function SshForm({
             </TabsContent>
 
             <TabsContent value="terminal" className="mt-3 border-0 outline-none">
-              <div className="rounded-lg border bg-accent/25 p-3">
+              <div className="space-y-3 rounded-lg border bg-accent/25 p-3">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <Label className="text-xs font-medium text-foreground/80">
+                      {t("dialog.sshProfile")}
+                    </Label>
+                    <Select
+                      value={sshProfile}
+                      onValueChange={(value) => setSshProfile(value as SshProfile)}
+                    >
+                      <SelectTrigger className="mt-1 h-8 text-xs font-normal">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="standard">{t("dialog.sshProfileStandard")}</SelectItem>
+                        <SelectItem value="network_device">
+                          {t("dialog.sshProfileNetworkDevice")}
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <p className="mt-2 text-[0.6875rem] leading-relaxed text-muted-foreground">
+                      {networkDeviceProfile
+                        ? t("dialog.sshProfileNetworkDeviceDesc")
+                        : t("dialog.sshProfileStandardDesc")}
+                    </p>
+                  </div>
+                  <div>
+                    <Label className="text-xs font-medium text-foreground/80">
+                      {t("dialog.sshTerminalType")}
+                    </Label>
+                    <Select
+                      value={sshTerminalType}
+                      onValueChange={(value) =>
+                        setSshTerminalType(value as SshTerminalTypeSelection)
+                      }
+                    >
+                      <SelectTrigger className="mt-1 h-8 text-xs font-normal">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="default">
+                          {t("dialog.sshTerminalTypeDefault", { value: defaultTerminalType })}
+                        </SelectItem>
+                        <SelectItem value="xterm-256color">xterm-256color</SelectItem>
+                        <SelectItem value="xterm">xterm</SelectItem>
+                        <SelectItem value="vt100">vt100</SelectItem>
+                        <SelectItem value="vt220">vt220</SelectItem>
+                        <SelectItem value="ansi">ansi</SelectItem>
+                        <SelectItem value="linux">linux</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <p className="mt-2 text-[0.6875rem] leading-relaxed text-muted-foreground">
+                      {t("dialog.sshTerminalTypeDesc")}
+                    </p>
+                  </div>
+                </div>
+                {networkDeviceProfile && (
+                  <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[0.6875rem] leading-relaxed text-amber-800 dark:text-amber-200">
+                    {t("dialog.sshProfileNetworkDeviceRuntimeDesc")}
+                  </div>
+                )}
                 <div className="max-w-md">
                   <Label className="text-xs font-medium text-foreground/80">
                     {t("connection.encoding")}
@@ -1118,6 +1337,14 @@ export function SshForm({
                     </SelectContent>
                   </Select>
                 </div>
+                <ConnectionRecordingSettings
+                  useGlobal={recordingUseGlobal}
+                  onUseGlobalChange={setRecordingUseGlobal}
+                  autoStart={recordingAutoStart}
+                  onAutoStartChange={setRecordingAutoStart}
+                  mode={recordingMode}
+                  onModeChange={setRecordingMode}
+                />
               </div>
             </TabsContent>
 
@@ -1133,6 +1360,7 @@ export function SshForm({
                   <div className="flex shrink-0 items-center gap-2">
                     <Switch
                       checked={sftpSettings.enabled}
+                      disabled={networkDeviceProfile}
                       onCheckedChange={(enabled) =>
                         setSftpSettings({
                           ...sftpSettings,
@@ -1151,6 +1379,7 @@ export function SshForm({
                     {t("dialog.sftpCwdFollowMode")}
                   </Label>
                   <Select
+                    disabled={sftpDisabled}
                     value={sftpSettings.cwd_follow_mode}
                     onValueChange={(cwd_follow_mode) =>
                       setSftpSettings({
@@ -1198,7 +1427,7 @@ export function SshForm({
                       min={MIN_SFTP_SHELL_DETECTION_TIMEOUT_MS}
                       max={MAX_SFTP_SHELL_DETECTION_TIMEOUT_MS}
                       step={100}
-                      disabled={sftpSettings.cwd_follow_mode === "off"}
+                      disabled={sftpDisabled || sftpSettings.cwd_follow_mode === "off"}
                     />
                     <span className="shrink-0 text-[0.625rem] text-muted-foreground">ms</span>
                   </div>
@@ -1211,6 +1440,7 @@ export function SshForm({
                     {t("dialog.sftpFilenameEncoding")}
                   </Label>
                   <Select
+                    disabled={sftpDisabled}
                     value={sftpSettings.filename_encoding || "terminal"}
                     onValueChange={(filename_encoding) =>
                       setSftpSettings({

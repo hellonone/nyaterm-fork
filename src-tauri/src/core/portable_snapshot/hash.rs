@@ -14,7 +14,7 @@ fn validate_portable_snapshot(snapshot: &PortableSnapshot) -> AppResult<()> {
     Ok(())
 }
 
-fn calculate_payload_hash(snapshot: &PortableSnapshot) -> AppResult<String> {
+pub(crate) fn calculate_payload_hash(snapshot: &PortableSnapshot) -> AppResult<String> {
     let payload_bytes = serde_json::to_vec(&SnapshotHashInput {
         settings: &snapshot.settings,
         sessions: &snapshot.sessions,

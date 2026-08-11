@@ -1,14 +1,24 @@
+use super::agent::{DynamicAgentClient, connect_agent_client};
 use super::client::{SshAuth, SshConfig, SshHandler, SshPostLoginConfig};
 use crate::error::{AppError, AppResult};
 use crate::observability::{self, StructuredLog, StructuredLogLevel};
 use russh::client::{self, KeyboardInteractiveAuthResponse};
+use russh::keys::{Algorithm, HashAlg, agent::AgentIdentity};
 use russh::{MethodKind, MethodSet};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use std::collections::{HashMap, HashSet};
+use std::future::Future;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex as StdMutex, OnceLock};
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::{Mutex, oneshot};
+use tokio::time::{Duration, timeout};
+
+const AGENT_IDENTITY_TIMEOUT: Duration = Duration::from_secs(5);
+const AGENT_SIGN_TIMEOUT: Duration = Duration::from_secs(60);
+const AGENT_APPROVAL_TIMEOUT: Duration = Duration::from_secs(300);
+const INTERACTIVE_AUTH_TIMEOUT: Duration = Duration::from_secs(300);
 
 /// Manages pending keyboard-interactive auth requests awaiting user input from the frontend.
 pub struct PendingAuthManager {
@@ -35,11 +45,97 @@ impl PendingAuthManager {
             false
         }
     }
+
+    pub async fn finish(&self, request_id: &str) {
+        self.pending.lock().await.remove(request_id);
+    }
 }
 
 /// Manages pending runtime SSH credential requests awaiting user input.
 pub struct PendingSshAuthManager {
     pending: Mutex<HashMap<String, oneshot::Sender<Option<SshAuthResponse>>>>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum SshAgentAuthAction {
+    Retry,
+    Cancel,
+}
+
+/// Manages requests waiting for hardware-key, PIN, or desktop Agent approval.
+pub struct PendingSshAgentAuthManager {
+    pending: Mutex<HashMap<String, oneshot::Sender<SshAgentAuthAction>>>,
+}
+
+impl PendingSshAgentAuthManager {
+    pub fn new() -> Self {
+        Self {
+            pending: Mutex::new(HashMap::new()),
+        }
+    }
+
+    pub async fn register(&self, request_id: String) -> oneshot::Receiver<SshAgentAuthAction> {
+        let (tx, rx) = oneshot::channel();
+        self.pending.lock().await.insert(request_id, tx);
+        rx
+    }
+
+    pub async fn respond(&self, request_id: &str, action: SshAgentAuthAction) -> bool {
+        self.pending
+            .lock()
+            .await
+            .remove(request_id)
+            .is_some_and(|tx| tx.send(action).is_ok())
+    }
+
+    pub async fn finish(&self, request_id: &str) {
+        self.pending.lock().await.remove(request_id);
+    }
+}
+
+pub(super) const SSH_AGENT_AUTH_RETRY: &str = "ssh-agent-auth-retry";
+
+#[derive(Clone, Copy)]
+enum SecurityPromptManager {
+    Otp,
+    SshAuth,
+}
+
+struct SecurityPromptRequestGuard {
+    app: AppHandle,
+    request_id: String,
+    manager: SecurityPromptManager,
+    resolved: AtomicBool,
+}
+
+impl SecurityPromptRequestGuard {
+    fn new(app: AppHandle, request_id: String, manager: SecurityPromptManager) -> Self {
+        Self {
+            app,
+            request_id,
+            manager,
+            resolved: AtomicBool::new(false),
+        }
+    }
+
+    fn mark_resolved(&self) {
+        self.resolved.store(true, Ordering::Release);
+    }
+}
+
+impl Drop for SecurityPromptRequestGuard {
+    fn drop(&mut self) {
+        if self.resolved.swap(true, Ordering::AcqRel) {
+            return;
+        }
+
+        let app = self.app.clone();
+        let request_id = self.request_id.clone();
+        let manager = self.manager;
+        tauri::async_runtime::spawn(async move {
+            finish_security_prompt_request(&app, &request_id, manager).await;
+        });
+    }
 }
 
 impl PendingSshAuthManager {
@@ -61,6 +157,10 @@ impl PendingSshAuthManager {
         } else {
             false
         }
+    }
+
+    pub async fn finish(&self, request_id: &str) {
+        self.pending.lock().await.remove(request_id);
     }
 }
 
@@ -306,6 +406,7 @@ fn current_auth_mode(auth: &SshAuth) -> &'static str {
         SshAuth::None => "none",
         SshAuth::Password { .. } => "password",
         SshAuth::Key { .. } => "key",
+        SshAuth::Agent => "agent",
     }
 }
 
@@ -362,6 +463,7 @@ fn resolve_saved_ssh_config(
     };
     let post_login = resolve_post_login(conn);
     let x11_forwarding = resolve_x11_forwarding(conn);
+    let (agent_endpoint, agent_forwarding) = resolve_agent_settings(conn);
     let x11_display = crate::config::load_app_settings(app)
         .map(|settings| settings.terminal.x11_display)
         .unwrap_or_default();
@@ -379,10 +481,17 @@ fn resolve_saved_ssh_config(
         backspace_mode: resolve_ssh_backspace_mode(conn),
         x11_forwarding,
         x11_display,
+        agent_endpoint,
+        agent_forwarding,
         proxy,
         proxy_jump,
         post_login,
         ssh_algorithms: conn.ssh_algorithms.clone(),
+        ssh_profile: conn.ssh_profile.clone(),
+        terminal_type: crate::config::resolve_ssh_terminal_type(
+            &conn.ssh_profile,
+            conn.terminal_type.as_ref(),
+        ),
         sftp: conn.sftp.clone(),
         encoding,
     })
@@ -392,6 +501,19 @@ fn resolve_x11_forwarding(conn: &crate::config::SavedConnection) -> bool {
     match &conn.config {
         crate::config::ConnectionType::Ssh { x11_forwarding, .. } => *x11_forwarding,
         _ => false,
+    }
+}
+
+fn resolve_agent_settings(
+    conn: &crate::config::SavedConnection,
+) -> (crate::config::SshAgentEndpoint, bool) {
+    match &conn.config {
+        crate::config::ConnectionType::Ssh {
+            agent_endpoint,
+            agent_forwarding,
+            ..
+        } => (agent_endpoint.clone(), *agent_forwarding),
+        _ => (crate::config::SshAgentEndpoint::Auto, false),
     }
 }
 
@@ -439,6 +561,7 @@ fn resolve_auth(app: &AppHandle, conn: &crate::config::SavedConnection) -> AppRe
             let password = resolve_password_material(Some(app), conn_auth)?;
             Ok(SshAuth::Password { password })
         }
+        "agent" => Ok(SshAuth::Agent),
         "key" => {
             let Some(key_id) = conn_auth.key_id.as_deref() else {
                 return Ok(SshAuth::None);
@@ -684,6 +807,9 @@ pub(super) async fn authenticate_handle(
                 Err(failure) => return Err(failure.into()),
             }
         }
+        SshAuth::Agent => {
+            authenticate_agent(handle, config, app, key_error, otp_info.as_ref()).await?;
+        }
     }
 
     log_structured(
@@ -856,6 +982,11 @@ async fn request_runtime_auth_response(
     let pending_mgr = pending_mgr.inner().clone();
     let request_id = uuid::Uuid::new_v4().to_string();
     let rx = pending_mgr.register(request_id.clone()).await;
+    let request_guard = SecurityPromptRequestGuard::new(
+        app.clone(),
+        request_id.clone(),
+        SecurityPromptManager::SshAuth,
+    );
     let payload = SshAuthRequestPayload {
         request_id: request_id.clone(),
         connection_id: config.connection_id.clone(),
@@ -893,20 +1024,21 @@ async fn request_runtime_auth_response(
     );
     let _ = app.emit("ssh-auth-request", &payload);
 
-    let response = match rx.await {
-        Ok(Some(response)) => response,
-        Ok(None) => {
-            return Err(AppError::Auth(
-                "SSH authentication cancelled by user".to_string(),
-            ));
-        }
-        Err(_) => {
-            return Err(AppError::Auth(
-                "SSH authentication request dropped".to_string(),
-            ));
-        }
+    let response = match timeout(INTERACTIVE_AUTH_TIMEOUT, rx).await {
+        Ok(Ok(Some(response))) => Ok(response),
+        Ok(Ok(None)) => Err(AppError::Auth(
+            "SSH authentication cancelled by user".to_string(),
+        )),
+        Ok(Err(_)) => Err(AppError::Auth(
+            "SSH authentication request dropped".to_string(),
+        )),
+        Err(_) => Err(AppError::Auth(
+            "SSH authentication request timed out".to_string(),
+        )),
     };
-    Ok(response)
+    finish_security_prompt_request(app, &request_id, SecurityPromptManager::SshAuth).await;
+    request_guard.mark_resolved();
+    response
 }
 
 fn current_password_id(app: &AppHandle, connection_id: Option<&str>) -> Option<String> {
@@ -1392,6 +1524,495 @@ async fn authenticate_publickey_attempt(
             secret,
         })
     }))
+}
+
+enum AgentSigningSelectionError {
+    Action(Result<SshAgentAuthAction, oneshot::error::RecvError>),
+    Signing(AppError),
+}
+
+async fn await_agent_signing_or_action<T, F>(
+    signing: F,
+    action_rx: &mut oneshot::Receiver<SshAgentAuthAction>,
+) -> Result<T, AgentSigningSelectionError>
+where
+    F: Future<Output = AppResult<T>>,
+{
+    tokio::select! {
+        biased;
+        action = &mut *action_rx => Err(AgentSigningSelectionError::Action(action)),
+        result = signing => result.map_err(AgentSigningSelectionError::Signing),
+    }
+}
+
+/// Try public-key authentication with identities provided by an external SSH Agent.
+///
+/// The Agent only signs; the server still decides whether to accept an identity.
+/// Private key material, identity comments, and key contents never enter the app
+/// or its logs.
+async fn authenticate_agent(
+    handle: &mut client::Handle<SshHandler>,
+    config: &SshConfig,
+    app: &AppHandle,
+    fallback_error: &str,
+    otp_info: Option<&OtpAutoFillInfo>,
+) -> AppResult<()> {
+    let (mut agent, identities, rsa_hashes) =
+        prepare_agent_authentication(handle, config, app).await?;
+
+    log_structured(
+        StructuredLogLevel::Info,
+        "ssh.auth",
+        "auth.start",
+        "Starting SSH Agent authentication",
+        config.connection_id.as_deref(),
+        None,
+        Some(json!({
+            "host": config.host,
+            "port": config.port,
+            "username": config.username,
+            "auth_mode": "agent",
+            "identity_count": identities.len(),
+        })),
+        None,
+    );
+    let mut last_failure: Option<SshAuthFailure> = None;
+
+    for identity in identities {
+        let public_key = identity.public_key();
+        let hashes = if matches!(public_key.algorithm(), Algorithm::Rsa { .. }) {
+            rsa_hashes.clone()
+        } else {
+            vec![None]
+        };
+
+        for hash_alg in hashes {
+            let (request_id, mut action_rx, request_guard) =
+                begin_agent_auth_request(app, config).await?;
+            let signing = async {
+                match &identity {
+                    AgentIdentity::PublicKey { key, .. } => timeout(
+                        AGENT_SIGN_TIMEOUT,
+                        handle.authenticate_publickey_with(
+                            &config.username,
+                            key.clone(),
+                            hash_alg,
+                            &mut agent,
+                        ),
+                    )
+                    .await
+                    .map_err(|_| AppError::Auth("SSH Agent signing timed out".to_string()))
+                    .and_then(|result| {
+                        result.map_err(|error| {
+                            AppError::Auth(format!("SSH Agent signing failed: {error}"))
+                        })
+                    }),
+                    AgentIdentity::Certificate { certificate, .. } => timeout(
+                        AGENT_SIGN_TIMEOUT,
+                        handle.authenticate_certificate_with(
+                            &config.username,
+                            certificate.clone(),
+                            hash_alg,
+                            &mut agent,
+                        ),
+                    )
+                    .await
+                    .map_err(|_| AppError::Auth("SSH Agent signing timed out".to_string()))
+                    .and_then(|result| {
+                        result.map_err(|error| {
+                            AppError::Auth(format!("SSH Agent signing failed: {error}"))
+                        })
+                    }),
+                }
+            };
+            let result = match await_agent_signing_or_action(signing, &mut action_rx).await {
+                Err(AgentSigningSelectionError::Action(action)) => {
+                    // 先释放本地 Agent 连接，再通知前端请求结束，避免用户立即重连时复用旧连接状态。
+                    drop(agent);
+                    finish_agent_auth_request(app, &request_id, false).await;
+                    request_guard.mark_resolved();
+                    return Err(agent_auth_action_error(action));
+                }
+                Ok(result) => Ok(result),
+                Err(AgentSigningSelectionError::Signing(error)) => Err(error),
+            };
+
+            let result = match result {
+                Ok(result) => {
+                    finish_agent_auth_request(app, &request_id, true).await;
+                    request_guard.mark_resolved();
+                    result
+                }
+                Err(error) => {
+                    // 失败后会等待用户操作，此时不应继续持有旧 Agent 连接。
+                    drop(agent);
+                    return agent_auth_failure_with_request(
+                        app,
+                        config,
+                        request_id,
+                        action_rx,
+                        request_guard,
+                        error.to_string(),
+                    )
+                    .await;
+                }
+            };
+
+            match &result {
+                client::AuthResult::Success => return Ok(()),
+                client::AuthResult::Failure {
+                    remaining_methods,
+                    partial_success,
+                } => {
+                    if *partial_success {
+                        drop(agent);
+                        try_keyboard_interactive_after_partial(
+                            handle,
+                            &result,
+                            &config.username,
+                            config.connection_id.as_deref(),
+                            &config.name,
+                            config.owner_window_label.as_deref(),
+                            app,
+                            fallback_error,
+                            None,
+                            otp_info,
+                        )
+                        .await
+                        .map_err(AppError::from)?;
+                        return Ok(());
+                    }
+
+                    let auth_failure = SshAuthFailure::from_auth_result(
+                        "SSH Agent identity rejected",
+                        remaining_methods,
+                        *partial_success,
+                    );
+                    if remaining_methods.contains(&MethodKind::PublicKey) {
+                        last_failure = Some(auth_failure);
+                        continue;
+                    }
+                    drop(agent);
+                    return agent_auth_failure(app, config, auth_failure.message).await;
+                }
+            }
+        }
+    }
+
+    drop(agent);
+    agent_auth_failure(
+        app,
+        config,
+        last_failure
+            .map(|failure| failure.message)
+            .unwrap_or_else(|| fallback_error.to_string()),
+    )
+    .await
+}
+
+/// Establish a cancellable pre-authentication phase for a single SSH Agent authentication.
+///
+/// The pre-authentication request is created before accessing the Agent, ensuring that when the Agent is blocked by the previous hardware challenge,
+/// the current connection can still present an independent authentication status to the frontend and respond to cancellation operations.
+async fn prepare_agent_authentication(
+    handle: &mut client::Handle<SshHandler>,
+    config: &SshConfig,
+    app: &AppHandle,
+) -> AppResult<(DynamicAgentClient, Vec<AgentIdentity>, Vec<Option<HashAlg>>)> {
+    let (request_id, mut action_rx, request_guard) = begin_agent_auth_request(app, config).await?;
+
+    let mut agent = match tokio::select! {
+        biased;
+        action = &mut action_rx => {
+            finish_agent_auth_request(app, &request_id, false).await;
+            request_guard.mark_resolved();
+            return Err(agent_auth_action_error(action));
+        }
+        result = connect_agent_client(&config.agent_endpoint) => result,
+    } {
+        Ok(agent) => agent,
+        Err(error) => {
+            return Err(agent_auth_failure_error(
+                app,
+                config,
+                request_id,
+                action_rx,
+                request_guard,
+                error.to_string(),
+            )
+            .await);
+        }
+    };
+
+    let identities = match tokio::select! {
+        biased;
+        action = &mut action_rx => {
+            drop(agent);
+            finish_agent_auth_request(app, &request_id, false).await;
+            request_guard.mark_resolved();
+            return Err(agent_auth_action_error(action));
+        }
+        result = timeout(AGENT_IDENTITY_TIMEOUT, agent.request_identities()) => result,
+    } {
+        Ok(Ok(identities)) => identities,
+        Ok(Err(error)) => {
+            drop(agent);
+            return Err(agent_auth_failure_error(
+                app,
+                config,
+                request_id,
+                action_rx,
+                request_guard,
+                format!("SSH Agent identity request failed: {error}"),
+            )
+            .await);
+        }
+        Err(_) => {
+            drop(agent);
+            return Err(agent_auth_failure_error(
+                app,
+                config,
+                request_id,
+                action_rx,
+                request_guard,
+                "SSH Agent identity request timed out".to_string(),
+            )
+            .await);
+        }
+    };
+
+    if identities.is_empty() {
+        drop(agent);
+        return Err(agent_auth_failure_error(
+            app,
+            config,
+            request_id,
+            action_rx,
+            request_guard,
+            "SSH Agent has no identities".to_string(),
+        )
+        .await);
+    }
+
+    let rsa_hashes = match tokio::select! {
+        biased;
+        action = &mut action_rx => {
+            drop(agent);
+            finish_agent_auth_request(app, &request_id, false).await;
+            request_guard.mark_resolved();
+            return Err(agent_auth_action_error(action));
+        }
+        result = handle.best_supported_rsa_hash() => result,
+    } {
+        Ok(Some(Some(hash))) => vec![Some(hash)],
+        Ok(Some(None)) => vec![None],
+        Ok(None) => vec![Some(HashAlg::Sha512), Some(HashAlg::Sha256), None],
+        Err(error) => {
+            drop(agent);
+            return Err(agent_auth_failure_error(
+                app,
+                config,
+                request_id,
+                action_rx,
+                request_guard,
+                format!("Unable to determine SSH Agent RSA hash algorithm: {error}"),
+            )
+            .await);
+        }
+    };
+
+    finish_agent_auth_request(app, &request_id, true).await;
+    request_guard.mark_resolved();
+    Ok((agent, identities, rsa_hashes))
+}
+
+fn agent_auth_action_error(
+    action: Result<SshAgentAuthAction, oneshot::error::RecvError>,
+) -> AppError {
+    match action {
+        Ok(SshAgentAuthAction::Retry) => AppError::Auth(SSH_AGENT_AUTH_RETRY.to_string()),
+        Ok(SshAgentAuthAction::Cancel) | Err(_) => {
+            AppError::Cancelled("SSH Agent authentication cancelled".to_string())
+        }
+    }
+}
+
+async fn agent_auth_failure_error(
+    app: &AppHandle,
+    config: &SshConfig,
+    request_id: String,
+    action_rx: oneshot::Receiver<SshAgentAuthAction>,
+    request_guard: AgentAuthRequestGuard,
+    error: String,
+) -> AppError {
+    match agent_auth_failure_with_request(app, config, request_id, action_rx, request_guard, error)
+        .await
+    {
+        Err(error) => error,
+        Ok(()) => AppError::Auth(
+            "SSH Agent failure approval unexpectedly completed successfully".to_string(),
+        ),
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SshAgentAuthEvent {
+    request_id: String,
+    connection_name: String,
+    username: String,
+    endpoint: String,
+    state: String,
+    error: Option<String>,
+    target_window_label: Option<String>,
+}
+
+fn agent_endpoint_name(endpoint: &crate::config::SshAgentEndpoint) -> &'static str {
+    match endpoint {
+        crate::config::SshAgentEndpoint::Auto => "auto",
+        crate::config::SshAgentEndpoint::Environment { .. } => "environment",
+        crate::config::SshAgentEndpoint::UnixSocket { .. } => "unix_socket",
+        crate::config::SshAgentEndpoint::Pageant => "pageant",
+        crate::config::SshAgentEndpoint::WindowsOpenSsh => "windows_open_ssh",
+    }
+}
+
+async fn begin_agent_auth_request(
+    app: &AppHandle,
+    config: &SshConfig,
+) -> AppResult<(
+    String,
+    oneshot::Receiver<SshAgentAuthAction>,
+    AgentAuthRequestGuard,
+)> {
+    let request_id = uuid::Uuid::new_v4().to_string();
+    let manager = app
+        .try_state::<Arc<PendingSshAgentAuthManager>>()
+        .ok_or_else(|| AppError::Auth("Pending SSH Agent manager is unavailable".to_string()))?;
+    let receiver = manager.register(request_id.clone()).await;
+    let _ = app.emit(
+        "ssh-agent-auth-pending",
+        SshAgentAuthEvent {
+            request_id: request_id.clone(),
+            connection_name: config.name.clone(),
+            username: config.username.clone(),
+            endpoint: agent_endpoint_name(&config.agent_endpoint).to_string(),
+            state: "pending".to_string(),
+            error: None,
+            target_window_label: config.owner_window_label.clone(),
+        },
+    );
+    Ok((
+        request_id.clone(),
+        receiver,
+        AgentAuthRequestGuard::new(app.clone(), request_id),
+    ))
+}
+
+struct AgentAuthRequestGuard {
+    app: AppHandle,
+    request_id: String,
+    resolved: Arc<AtomicBool>,
+}
+
+impl AgentAuthRequestGuard {
+    fn new(app: AppHandle, request_id: String) -> Self {
+        Self {
+            app,
+            request_id,
+            resolved: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    fn mark_resolved(&self) {
+        self.resolved.store(true, Ordering::Release);
+    }
+}
+
+impl Drop for AgentAuthRequestGuard {
+    fn drop(&mut self) {
+        if self.resolved.swap(true, Ordering::AcqRel) {
+            return;
+        }
+
+        let app = self.app.clone();
+        let request_id = self.request_id.clone();
+        tauri::async_runtime::spawn(async move {
+            finish_agent_auth_request(&app, &request_id, false).await;
+        });
+    }
+}
+
+async fn finish_agent_auth_request(app: &AppHandle, request_id: &str, resolved: bool) {
+    if let Some(manager) = app.try_state::<Arc<PendingSshAgentAuthManager>>() {
+        manager.finish(request_id).await;
+    }
+    let _ = app.emit(
+        "ssh-agent-auth-resolved",
+        serde_json::json!({ "requestId": request_id, "resolved": resolved }),
+    );
+}
+
+async fn finish_security_prompt_request(
+    app: &AppHandle,
+    request_id: &str,
+    manager_kind: SecurityPromptManager,
+) {
+    match manager_kind {
+        SecurityPromptManager::Otp => {
+            if let Some(manager) = app.try_state::<Arc<PendingAuthManager>>() {
+                manager.finish(request_id).await;
+            }
+        }
+        SecurityPromptManager::SshAuth => {
+            if let Some(manager) = app.try_state::<Arc<PendingSshAuthManager>>() {
+                manager.finish(request_id).await;
+            }
+        }
+    }
+    let _ = app.emit(
+        "security-prompt-resolved",
+        serde_json::json!({ "requestId": request_id }),
+    );
+}
+
+async fn agent_auth_failure(app: &AppHandle, config: &SshConfig, error: String) -> AppResult<()> {
+    let (request_id, receiver, request_guard) = begin_agent_auth_request(app, config).await?;
+    agent_auth_failure_with_request(app, config, request_id, receiver, request_guard, error).await
+}
+
+async fn agent_auth_failure_with_request(
+    app: &AppHandle,
+    config: &SshConfig,
+    request_id: String,
+    receiver: oneshot::Receiver<SshAgentAuthAction>,
+    request_guard: AgentAuthRequestGuard,
+    error: String,
+) -> AppResult<()> {
+    let _ = app.emit(
+        "ssh-agent-auth-failed",
+        SshAgentAuthEvent {
+            request_id: request_id.clone(),
+            connection_name: config.name.clone(),
+            username: config.username.clone(),
+            endpoint: agent_endpoint_name(&config.agent_endpoint).to_string(),
+            state: "failed".to_string(),
+            error: Some(error),
+            target_window_label: config.owner_window_label.clone(),
+        },
+    );
+    let result = match timeout(AGENT_APPROVAL_TIMEOUT, receiver).await {
+        Ok(Ok(SshAgentAuthAction::Retry)) => Err(AppError::Auth(SSH_AGENT_AUTH_RETRY.to_string())),
+        Ok(Ok(SshAgentAuthAction::Cancel) | Err(_)) => Err(AppError::Cancelled(
+            "SSH Agent authentication cancelled".to_string(),
+        )),
+        Err(_) => Err(AppError::Auth(
+            "SSH Agent authentication approval timed out".to_string(),
+        )),
+    };
+    finish_agent_auth_request(app, &request_id, false).await;
+    request_guard.mark_resolved();
+    result
 }
 
 fn persist_runtime_auth_updates(
@@ -2021,6 +2642,11 @@ async fn finish_keyboard_interactive(
                 } else {
                     let request_id = uuid::Uuid::new_v4().to_string();
                     let rx = pending_mgr.register(request_id.clone()).await;
+                    let request_guard = SecurityPromptRequestGuard::new(
+                        app.clone(),
+                        request_id.clone(),
+                        SecurityPromptManager::Otp,
+                    );
 
                     let payload = OtpRequestPayload {
                         request_id: request_id.clone(),
@@ -2057,19 +2683,22 @@ async fn finish_keyboard_interactive(
                     );
                     let _ = app.emit("otp-request", &payload);
 
-                    let responses = match rx.await {
-                        Ok(Some(responses)) => responses,
-                        Ok(None) => {
-                            return Err(AppError::Auth(
-                                "2FA authentication cancelled by user".to_string(),
-                            ));
-                        }
-                        Err(_) => {
-                            return Err(AppError::Auth(
-                                "2FA authentication request dropped".to_string(),
-                            ));
-                        }
+                    let responses = match timeout(INTERACTIVE_AUTH_TIMEOUT, rx).await {
+                        Ok(Ok(Some(responses))) => Ok(responses),
+                        Ok(Ok(None)) => Err(AppError::Auth(
+                            "2FA authentication cancelled by user".to_string(),
+                        )),
+                        Ok(Err(_)) => Err(AppError::Auth(
+                            "2FA authentication request dropped".to_string(),
+                        )),
+                        Err(_) => Err(AppError::Auth(
+                            "2FA authentication request timed out".to_string(),
+                        )),
                     };
+                    finish_security_prompt_request(app, &request_id, SecurityPromptManager::Otp)
+                        .await;
+                    request_guard.mark_resolved();
+                    let responses = responses?;
                     let prepared =
                         prepare_manual_otp_responses(app, otp_info, responses, connection_id)
                             .await?;
@@ -2330,13 +2959,17 @@ fn normalize_optional_keyboard_interactive_text(text: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        KeyboardInteractiveMode, TotpUseCandidate, is_otp_keyboard_interactive_prompt,
+        AgentSigningSelectionError, KeyboardInteractiveMode, PendingAuthManager,
+        PendingSshAgentAuthManager, PendingSshAuthManager, SshAgentAuthAction, TotpUseCandidate,
+        await_agent_signing_or_action, is_otp_keyboard_interactive_prompt,
         is_password_keyboard_interactive_prompt, is_totp_code_reused, record_totp_code_use,
         resolve_password_material, seconds_until_next_totp_step, should_auto_fill_otp_prompts,
         should_auto_fill_password_prompts, used_totp_codes,
     };
     use crate::config::ConnectionAuth;
+    use crate::error::AppError;
     use russh::client::Prompt;
+    use tokio::sync::oneshot;
 
     #[test]
     fn auto_fills_single_hidden_keyboard_interactive_prompt() {
@@ -2503,5 +3136,55 @@ mod tests {
             code: "654321".to_string(),
             ..candidate
         }));
+    }
+
+    #[tokio::test]
+    async fn agent_action_wins_when_signing_result_is_ready() {
+        let (action_tx, mut action_rx) = oneshot::channel();
+        action_tx.send(SshAgentAuthAction::Cancel).unwrap();
+
+        let result =
+            await_agent_signing_or_action(async { Ok::<_, AppError>(()) }, &mut action_rx).await;
+
+        assert!(matches!(
+            result,
+            Err(AgentSigningSelectionError::Action(Ok(
+                SshAgentAuthAction::Cancel
+            )))
+        ));
+    }
+
+    #[tokio::test]
+    async fn finishing_pending_interactive_requests_removes_their_senders() {
+        let otp_manager = PendingAuthManager::new();
+        let otp_receiver = otp_manager.register("otp-request".to_string()).await;
+        otp_manager.finish("otp-request").await;
+        assert!(otp_receiver.await.is_err());
+        assert!(!otp_manager.respond("otp-request", None).await);
+
+        let ssh_manager = PendingSshAuthManager::new();
+        let ssh_receiver = ssh_manager.register("ssh-request".to_string()).await;
+        ssh_manager.finish("ssh-request").await;
+        assert!(ssh_receiver.await.is_err());
+        assert!(!ssh_manager.respond("ssh-request", None).await);
+    }
+
+    #[tokio::test]
+    async fn ssh_agent_prompts_are_isolated_by_request_id() {
+        let manager = PendingSshAgentAuthManager::new();
+        let first = manager.register("first".to_string()).await;
+        let second = manager.register("second".to_string()).await;
+
+        assert!(manager.respond("second", SshAgentAuthAction::Retry).await);
+        assert!(manager.respond("first", SshAgentAuthAction::Cancel).await);
+
+        assert!(matches!(second.await, Ok(SshAgentAuthAction::Retry)));
+        assert!(matches!(first.await, Ok(SshAgentAuthAction::Cancel)));
+        assert!(!manager.respond("first", SshAgentAuthAction::Retry).await);
+
+        // Retry creates a fresh pending request instead of reusing a completed waiter.
+        let retried = manager.register("second".to_string()).await;
+        assert!(manager.respond("second", SshAgentAuthAction::Retry).await);
+        assert!(matches!(retried.await, Ok(SshAgentAuthAction::Retry)));
     }
 }

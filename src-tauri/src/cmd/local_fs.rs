@@ -681,6 +681,8 @@ mod tests {
                     ai_execution_profile: AiExecutionProfile::default(),
                     injection_active: true,
                     remote_file_browser_enabled: true,
+                    remote_stats_enabled: true,
+                    ssh_profile: None,
                 },
                 cmd_tx,
                 ssh_config: None,

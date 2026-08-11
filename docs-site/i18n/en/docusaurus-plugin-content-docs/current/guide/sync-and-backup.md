@@ -162,6 +162,12 @@ Typical outcomes include:
 
 This is not real-time remote watching. It is a startup check of the current state.
 
+### Auto-pull remote changes
+
+When **Auto Pull Remote Changes** is enabled, if startup check or sync check finds that only the remote side changed, NyaTerm automatically pulls and applies the current remote snapshot.
+
+This only handles cases with no unsynchronized local changes. If both local and remote changed, NyaTerm still enters conflict state instead of choosing one side automatically.
+
 ### Auto-push after local changes
 
 When enabled, NyaTerm automatically pushes a snapshot after supported local configuration changes are saved, using a debounce window.
@@ -211,6 +217,7 @@ When this happens, NyaTerm can show conflict details such as:
 - local snapshot hash
 - remote revision
 - remote device information
+- current remote snapshot time and hash
 - a human-readable conflict message
 
 ## How conflict resolution works
@@ -240,6 +247,8 @@ The important boundary is:
 - this is not a field-level merge
 - this is not collaborative conflict resolution
 - it is effectively a choice between the local snapshot and the remote snapshot
+
+NyaTerm keeps metadata for the current remote snapshot to help you decide whether to download the remote version or upload the local version. Legacy `sync/snapshots/` objects are only used for compatibility reads and cleanup, not as the normal multi-version backup entry point.
 
 ## What gets synced?
 
@@ -277,6 +286,7 @@ If you are enabling this for the first time, this order works well:
 5. Run **Test Connection** first
 6. Then decide whether to enable:
    - check on startup
+   - auto-pull remote changes
    - auto-push
 7. Finally run **Push Now** once to verify the full path works
 

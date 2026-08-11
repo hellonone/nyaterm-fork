@@ -63,11 +63,13 @@ export function OtpDialog({ request, onDone }: OtpDialogProps) {
   const handleSubmit = async () => {
     if (!request || submitting) return;
     setSubmitting(true);
+    let completed = false;
     try {
       await invoke("submit_otp_response", {
         requestId: request.requestId,
         responses,
       });
+      completed = true;
       logger.info({
         domain: "security.flow",
         event: "otp.response_submitted",
@@ -84,13 +86,16 @@ export function OtpDialog({ request, onDone }: OtpDialogProps) {
         error,
       });
     }
-    onDone(request.requestId);
+    if (completed) onDone(request.requestId);
+    setSubmitting(false);
   };
 
   const handleCancel = async () => {
     if (!request) return;
+    let completed = false;
     try {
       await invoke("cancel_otp_request", { requestId: request.requestId });
+      completed = true;
       logger.info({
         domain: "security.flow",
         event: "otp.request_cancelled",
@@ -106,7 +111,7 @@ export function OtpDialog({ request, onDone }: OtpDialogProps) {
         error,
       });
     }
-    onDone(request.requestId);
+    if (completed) onDone(request.requestId);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {

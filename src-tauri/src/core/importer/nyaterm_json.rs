@@ -121,6 +121,8 @@ fn prepare_nyaterm_json_session(
                     username: required_string(username, "username", &context)?,
                     backspace_mode: "del".to_string(),
                     x11_forwarding: false,
+                    agent_endpoint: config::SshAgentEndpoint::Auto,
+                    agent_forwarding: false,
                     encoding: String::new(),
                 },
                 group_path: normalize_optional_group_path(group_path, &context)?,
@@ -324,6 +326,25 @@ fn prepare_json_ssh_auth(
                 password_id: None,
                 password: None,
                 key_id: Some(key_id),
+                otp_id: None,
+                auto_fill_otp: false,
+                has_password: false,
+            })
+        }
+        "agent" => {
+            if auth.password.is_some()
+                || auth.password_ref.is_some()
+                || auth.key_ref.is_some()
+            {
+                return Err(AppError::Config(format!(
+                    "{context}: agent auth cannot include password, password_ref, or key_ref"
+                )));
+            }
+            Ok(ConnectionAuth {
+                mode: "agent".to_string(),
+                password_id: None,
+                password: None,
+                key_id: None,
                 otp_id: None,
                 auto_fill_otp: false,
                 has_password: false,

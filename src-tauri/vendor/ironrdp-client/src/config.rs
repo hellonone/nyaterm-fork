@@ -1,4 +1,5 @@
 use core::fmt;
+use core::pin::Pin;
 use core::str::FromStr;
 use core::time::Duration;
 #[cfg(all(windows, feature = "dvc-com-plugin"))]
@@ -14,6 +15,27 @@ use url::Url;
 
 type StaticChannelFn = Arc<dyn Fn(&mut ironrdp_connector::ClientConnector, &PropertySet) + Send + Sync>;
 type DvcChannelFn = Arc<dyn Fn(&mut ironrdp_dvc::DrdynvcClient, &PropertySet) + Send + Sync>;
+
+#[cfg(feature = "clipboard")]
+type CliprdrFactory = Arc<
+    dyn Fn(
+            Box<dyn ironrdp_cliprdr::backend::ClipboardMessageProxy>,
+        ) -> Box<dyn ironrdp_cliprdr::backend::CliprdrBackendFactory + Send>
+        + Send
+        + Sync,
+>;
+
+pub type ServerCertificateVerifyFuture<'a> =
+    Pin<Box<dyn Future<Output = Result<(), String>> + Send + 'a>>;
+
+pub trait ServerCertificateVerifier: fmt::Debug + Send + Sync {
+    fn verify_server_certificate<'a>(
+        &'a self,
+        host: &'a str,
+        port: u16,
+        der: Vec<u8>,
+    ) -> ServerCertificateVerifyFuture<'a>;
+}
 
 /// Private registry of user-supplied static and dynamic virtual channel factories.
 ///
@@ -61,6 +83,10 @@ pub struct Config {
     pub(crate) kerberos_config: Option<ironrdp_connector::credssp::KerberosConfig>,
     pub(crate) fake_events_interval: Option<Duration>,
     pub(crate) channels: ChannelConfig,
+    pub(crate) certificate_verifier: Option<Arc<dyn ServerCertificateVerifier>>,
+
+    #[cfg(feature = "clipboard")]
+    pub(crate) cliprdr_factory: Option<CliprdrFactory>,
 
     /// DVC channel ↔ named-pipe proxy configuration.
     ///
@@ -142,6 +168,15 @@ impl fmt::Debug for Config {
         s.field("kerberos_config", &self.kerberos_config);
         s.field("fake_events_interval", &self.fake_events_interval);
         s.field("channels", &self.channels);
+        s.field(
+            "certificate_verifier",
+            &self.certificate_verifier.as_ref().map(|_| "<verifier>"),
+        );
+        #[cfg(feature = "clipboard")]
+        s.field(
+            "cliprdr_factory",
+            &self.cliprdr_factory.as_ref().map(|_| "<factory>"),
+        );
         #[cfg(feature = "dvc-pipe-proxy")]
         s.field("dvc_pipe_proxies", &self.dvc_pipe_proxies);
         #[cfg(all(windows, feature = "dvc-com-plugin"))]
@@ -568,6 +603,9 @@ pub struct ConfigBuilder {
     kerberos_config: Option<ironrdp_connector::credssp::KerberosConfig>,
     fake_events_interval: Option<Duration>,
     channels: ChannelConfig,
+    certificate_verifier: Option<Arc<dyn ServerCertificateVerifier>>,
+    #[cfg(feature = "clipboard")]
+    cliprdr_factory: Option<CliprdrFactory>,
     #[cfg(feature = "dvc-pipe-proxy")]
     dvc_pipe_proxies: Vec<DvcProxyInfo>,
     #[cfg(all(windows, feature = "dvc-com-plugin"))]
@@ -921,6 +959,32 @@ impl ConfigBuilder {
         self
     }
 
+    /// Set a custom CLIPRDR backend factory.
+    #[cfg(feature = "clipboard")]
+    #[must_use]
+    pub fn with_cliprdr_factory<F>(mut self, factory: F) -> Self
+    where
+        F: Fn(
+                Box<dyn ironrdp_cliprdr::backend::ClipboardMessageProxy>,
+            ) -> Box<dyn ironrdp_cliprdr::backend::CliprdrBackendFactory + Send>
+            + Send
+            + Sync
+            + 'static,
+    {
+        self.cliprdr_factory = Some(Arc::new(factory));
+        self
+    }
+
+    /// Set a custom server-certificate verifier called after TLS upgrade and before RDP finalize.
+    #[must_use]
+    pub fn with_server_certificate_verifier(
+        mut self,
+        verifier: Arc<dyn ServerCertificateVerifier>,
+    ) -> Self {
+        self.certificate_verifier = Some(verifier);
+        self
+    }
+
     /// Enable or disable RDPDR (device redirection).
     #[cfg(feature = "rdpdr")]
     #[must_use]
@@ -1199,6 +1263,9 @@ impl ConfigBuilder {
             kerberos_config,
             fake_events_interval: self.fake_events_interval,
             channels: self.channels,
+            certificate_verifier: self.certificate_verifier,
+            #[cfg(feature = "clipboard")]
+            cliprdr_factory: self.cliprdr_factory,
             #[cfg(feature = "dvc-pipe-proxy")]
             dvc_pipe_proxies: self.dvc_pipe_proxies,
             #[cfg(all(windows, feature = "dvc-com-plugin"))]

@@ -4,12 +4,13 @@ sidebar_position: 0
 
 # Session Types
 
-NyaTerm is not just an SSH client. It is a desktop app that puts multiple terminal workflows into one workspace. It currently supports four session types:
+NyaTerm is not just an SSH client. It is a desktop app that puts multiple terminal and remote-desktop workflows into one workspace. It currently supports five session types:
 
 - **SSH**
 - **Local Terminal**
 - **Telnet**
 - **Serial**
+- **RDP**
 
 Understanding the differences helps explain why some panels or enhancements only appear for certain tabs.
 
@@ -21,6 +22,7 @@ Understanding the differences helps explain why some panels or enhancements only
 | Local Terminal | Local shell work, scripts, builds | Shared terminal UI, command history, split panes |
 | Telnet | Legacy devices, lab environments, compatibility troubleshooting | Terminal workspace features with `Backspace Mode`, but not SSH-only features |
 | Serial | Routers, switches, boards, embedded debug ports | Serial port settings, `Backspace Mode`, and terminal workspace features |
+| RDP | Windows Remote Desktop or graphical administration entry points | Remote desktop display, NLA/CredSSP, certificate verification, text clipboard, window fitting, and reconnects |
 
 ## SSH
 
@@ -99,6 +101,23 @@ When creating a serial session, you can configure:
 
 Serial sessions still live inside NyaTerm's tabbed and split workspace, so you can watch serial output in one pane while running commands in an SSH or local terminal pane.
 
+## RDP
+
+RDP sessions are for Windows hosts or other environments that expose a Remote Desktop endpoint. They share NyaTerm's saved-connection, tab, and split-pane workspace model, but the underlying session is a graphical desktop instead of a text terminal.
+
+When creating an RDP session, you can configure:
+
+- Host, port, username, password, and domain
+- Network Level Authentication (NLA / CredSSP)
+- Certificate policy: ask on unknown certificates, strict rejection, or accept for this session
+- Display mode: fit to window or fixed size
+- Text clipboard mode
+- Automatic reconnect attempts
+
+When connecting to an RDP host with an unknown certificate, NyaTerm opens a certificate verification dialog. You can accept the certificate for the current connection only or accept and remember it. If a remembered certificate changes later, NyaTerm prompts again before connecting.
+
+RDP does not provide terminal command history, the SFTP file explorer, SSH proxy/jump-host behavior, or remote resource monitoring. If you need command-line enhancements, use SSH, Local Terminal, Telnet, or Serial instead.
+
 ## How to choose
 
 A simple rule of thumb:
@@ -107,6 +126,7 @@ A simple rule of thumb:
 - Need a local shell? Use **Local Terminal**
 - Need a traditional remote terminal? Use **Telnet**
 - Need a device console or debug port? Use **Serial**
+- Need a graphical Windows remote desktop? Use **RDP**
 
 ## Mix them in one workspace
 
@@ -115,6 +135,7 @@ One of NyaTerm's strengths is that you can mix these session types in the same w
 - SSH on the left to watch remote logs
 - Local Terminal on the right to run packaging or Git commands
 - A Serial tab open to watch device boot output
+- An RDP pane open to inspect a Windows remote desktop
 
 That is why some features are documented as session-specific. The workspace is shared, but the capability boundary still depends on the underlying session type.
 

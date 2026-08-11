@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { MdChevronRight, MdClose, MdSettings } from "react-icons/md";
 import { PasswordManagementTab } from "@/components/panel/security-auth/PasswordManagementTab";
+import { ConnectionRecordingSettings } from "@/components/sessions/ConnectionRecordingSettings";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import {
@@ -27,7 +28,7 @@ import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { invoke } from "@/lib/invoke";
 import { cn } from "@/lib/utils";
-import type { SavedPassword } from "@/types/global";
+import type { RecordingMode, SavedPassword } from "@/types/global";
 
 const MASKED_PASSWORD_PLACEHOLDER = "••••••••";
 type TelnetEnterMode = "crlf" | "cr" | "lf";
@@ -65,6 +66,12 @@ interface TelnetFormProps {
   setSendNaws: (v: boolean) => void;
   sendSga: boolean;
   setSendSga: (v: boolean) => void;
+  recordingUseGlobal: boolean;
+  setRecordingUseGlobal: (v: boolean) => void;
+  recordingAutoStart: boolean;
+  setRecordingAutoStart: (v: boolean) => void;
+  recordingMode: RecordingMode;
+  setRecordingMode: (v: RecordingMode) => void;
   connectionId?: string;
   encoding: string;
   setEncoding: (v: string) => void;
@@ -108,6 +115,12 @@ export function TelnetForm({
   setSendNaws,
   sendSga,
   setSendSga,
+  recordingUseGlobal,
+  setRecordingUseGlobal,
+  recordingAutoStart,
+  setRecordingAutoStart,
+  recordingMode,
+  setRecordingMode,
   connectionId,
   encoding,
   setEncoding,
@@ -482,7 +495,7 @@ export function TelnetForm({
             </TabsContent>
 
             <TabsContent value="terminal" className="mt-3 border-0 outline-none">
-              <div className="rounded-lg border bg-accent/25 p-3">
+              <div className="space-y-3 rounded-lg border bg-accent/25 p-3">
                 <div className="max-w-md">
                   <Label className="text-xs font-medium text-foreground/80">
                     {t("connection.encoding")}
@@ -500,6 +513,14 @@ export function TelnetForm({
                     </SelectContent>
                   </Select>
                 </div>
+                <ConnectionRecordingSettings
+                  useGlobal={recordingUseGlobal}
+                  onUseGlobalChange={setRecordingUseGlobal}
+                  autoStart={recordingAutoStart}
+                  onAutoStartChange={setRecordingAutoStart}
+                  mode={recordingMode}
+                  onModeChange={setRecordingMode}
+                />
               </div>
             </TabsContent>
 

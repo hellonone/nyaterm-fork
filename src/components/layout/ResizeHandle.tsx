@@ -50,12 +50,26 @@ export default function ResizeHandle({ direction, onResize, className = "" }: Re
       className={`
         ${
           isHorizontal
-            ? "w-[3px] shrink-0 cursor-col-resize hover:opacity-70 active:opacity-90 transition-opacity"
-            : "h-[3px] shrink-0 cursor-row-resize hover:opacity-70 active:opacity-90 transition-opacity"
+            ? "group relative z-20 w-px shrink-0 cursor-col-resize overflow-visible"
+            : "group relative z-20 h-px shrink-0 cursor-row-resize overflow-visible"
         } ${className}
       `}
-      style={{ backgroundColor: "var(--df-border)" }}
       onMouseDown={handleMouseDown}
-    />
+    >
+      <div
+        className={
+          isHorizontal
+            ? "absolute inset-y-0 left-1/2 w-[3px] -translate-x-1/2"
+            : "absolute top-1/2 inset-x-0 h-[3px] -translate-y-1/2"
+        }
+      />
+      <div
+        className={
+          isHorizontal
+            ? "absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-[var(--df-border)] transition-[width,background-color] group-hover:w-[3px] group-hover:bg-[var(--df-primary)] group-active:w-[3px] group-active:bg-[var(--df-primary)]"
+            : "absolute top-1/2 inset-x-0 h-px -translate-y-1/2 bg-[var(--df-border)] transition-[height,background-color] group-hover:h-[3px] group-hover:bg-[var(--df-primary)] group-active:h-[3px] group-active:bg-[var(--df-primary)]"
+        }
+      />
+    </div>
   );
 }

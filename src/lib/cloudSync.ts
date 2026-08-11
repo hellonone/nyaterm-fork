@@ -233,3 +233,7 @@ export function shortValue(value?: string | null, size = 8) {
 export function hasConflict(conflict?: CloudConflictPreview | null) {
   return Boolean(conflict?.remote_revision);
 }
+
+export function isRemoteInconsistentConflict(conflict?: CloudConflictPreview | null) {
+  return conflict?.kind === "remote_inconsistent";
+}

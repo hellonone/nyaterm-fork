@@ -15,6 +15,7 @@ import {
   formatCloudProvider,
   formatTimestamp,
   getCloudSyncValidationErrors,
+  isRemoteInconsistentConflict,
   secretInputValue,
   secretPlaceholder,
   shortValue,
@@ -120,6 +121,7 @@ export function SyncBackupTab({ onNavigateSecurity }: SyncBackupTabProps) {
   const canRunConfigDependentActions = canUseCommittedProvider && !isDirty && !isSaving;
   const canRunEnabledActions = canRunConfigDependentActions && committedCloudSync.enabled;
   const isBusy = loading || isSaving || runningAction !== null;
+  const isRemoteInconsistent = isRemoteInconsistentConflict(status.conflict);
 
   const updateCloudSync = useCallback(
     (patch: Partial<CloudSyncSettings>) => {
@@ -1077,7 +1079,11 @@ export function SyncBackupTab({ onNavigateSecurity }: SyncBackupTabProps) {
       >
         {status.conflict ? (
           <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-4">
-            <div className="text-sm font-semibold">{t("settings.syncConflictTitle")}</div>
+            <div className="text-sm font-semibold">
+              {isRemoteInconsistent
+                ? t("settings.syncRemoteIncompleteTitle")
+                : t("settings.syncConflictTitle")}
+            </div>
             <p className="mt-1 text-xs leading-5 text-muted-foreground">
               <span className="break-words [overflow-wrap:anywhere]">
                 {status.conflict.message}
@@ -1103,26 +1109,60 @@ export function SyncBackupTab({ onNavigateSecurity }: SyncBackupTabProps) {
                   {formatTimestamp(status.conflict.remote_created_at_ms)}
                 </div>
               </div>
+              {isRemoteInconsistent ? (
+                <div className="rounded-md border border-border/70 bg-background/70 px-3 py-3 md:col-span-2">
+                  <div className="text-[0.6875rem] uppercase tracking-[0.14em] text-muted-foreground">
+                    {t("settings.currentRemoteSnapshot")}
+                  </div>
+                  <div className="mt-2 text-xs font-medium">
+                    {shortValue(status.conflict.recovery_revision, 10)}
+                  </div>
+                  <div className="mt-1 text-[0.6875rem] text-muted-foreground">
+                    {formatTimestamp(status.conflict.recovery_created_at_ms)}
+                  </div>
+                </div>
+              ) : null}
             </div>
             <div className="mt-3 flex flex-wrap gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() =>
-                  void runAction(
-                    "resolve-download",
-                    t("settings.syncResolveDownloadSuccess"),
-                    () =>
-                      invoke("resolve_cloud_sync_conflict", {
-                        action: "download_remote",
-                      }),
-                    { allowWhenDisabled: true },
-                  )
-                }
-                disabled={isBusy || !canRunConfigDependentActions}
-              >
-                {t("settings.downloadRemoteVersion")}
-              </Button>
+              {isRemoteInconsistent ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    void runAction(
+                      "resolve-recover-current",
+                      t("settings.syncRecoverCurrentSuccess"),
+                      () =>
+                        invoke("resolve_cloud_sync_conflict", {
+                          action: "recover_current_remote",
+                        }),
+                      { allowWhenDisabled: true },
+                    )
+                  }
+                  disabled={isBusy || !canRunConfigDependentActions}
+                >
+                  {t("settings.useCurrentRemoteSnapshot")}
+                </Button>
+              ) : (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    void runAction(
+                      "resolve-download",
+                      t("settings.syncResolveDownloadSuccess"),
+                      () =>
+                        invoke("resolve_cloud_sync_conflict", {
+                          action: "download_remote",
+                        }),
+                      { allowWhenDisabled: true },
+                    )
+                  }
+                  disabled={isBusy || !canRunConfigDependentActions}
+                >
+                  {t("settings.downloadRemoteVersion")}
+                </Button>
+              )}
               <Button
                 size="sm"
                 onClick={() =>

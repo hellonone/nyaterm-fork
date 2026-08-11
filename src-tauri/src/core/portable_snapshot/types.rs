@@ -355,9 +355,15 @@ pub fn strip_device_local_sessions(sessions: &mut config::SessionsConfig) {
             config::ConnectionType::Serial { port_name, .. } => {
                 port_name.clear();
             }
-            config::ConnectionType::Ssh { .. }
-            | config::ConnectionType::Telnet { .. }
-            | config::ConnectionType::Rdp { .. } => {}
+            config::ConnectionType::Ssh {
+                agent_endpoint,
+                agent_forwarding,
+                ..
+            } => {
+                *agent_endpoint = config::SshAgentEndpoint::Auto;
+                *agent_forwarding = false;
+            }
+            config::ConnectionType::Telnet { .. } | config::ConnectionType::Rdp { .. } => {}
         }
     }
 }
@@ -402,6 +408,21 @@ pub fn preserve_device_local_sessions(
                 },
             ) => {
                 *port_name = device_port_name.clone();
+            }
+            (
+                config::ConnectionType::Ssh {
+                    agent_endpoint,
+                    agent_forwarding,
+                    ..
+                },
+                config::ConnectionType::Ssh {
+                    agent_endpoint: device_agent_endpoint,
+                    agent_forwarding: device_agent_forwarding,
+                    ..
+                },
+            ) => {
+                *agent_endpoint = device_agent_endpoint.clone();
+                *agent_forwarding = *device_agent_forwarding;
             }
             _ => {}
         }

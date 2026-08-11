@@ -1796,6 +1796,22 @@ function FileExplorerPane({
     () => filteredSortedFiles.filter((file) => selectedFiles.has(file.name)),
     [filteredSortedFiles, selectedFiles],
   );
+  const footerStats = useMemo(
+    () => ({
+      selectedFileSize: selectedRealFiles.reduce(
+        (sum, file) => (file.is_dir ? sum : sum + file.size),
+        0,
+      ),
+      selectedItemCount: selectedRealFiles.length,
+      totalFileSize: visibleFiles.reduce((sum, file) => (file.is_dir ? sum : sum + file.size), 0),
+      totalItemCount: visibleFiles.length,
+    }),
+    [selectedRealFiles, visibleFiles],
+  );
+  const footerSizeText =
+    footerStats.selectedItemCount > 0 && footerStats.selectedFileSize > 0
+      ? `${formatSize(footerStats.selectedFileSize)}/${formatSize(footerStats.totalFileSize)}`
+      : formatSize(footerStats.totalFileSize);
   const fileAiActions = useMemo(
     () =>
       appSettings.ai.enabled
@@ -3266,16 +3282,17 @@ function FileExplorerPane({
           }}
         >
           <div className="flex gap-4">
-            {!directoryLoading && !error && visibleFiles.length > 0 && (
+            {!directoryLoading && !error && footerStats.totalItemCount > 0 && (
               <>
-                <span>{t("fileExplorer.totalItems", { count: visibleFiles.length })}</span>
-                {visibleFiles.some((f) => !f.is_dir) && (
-                  <span>
-                    {formatSize(
-                      visibleFiles.filter((f) => !f.is_dir).reduce((sum, f) => sum + f.size, 0),
-                    )}
-                  </span>
-                )}
+                <span>
+                  {footerStats.selectedItemCount > 0
+                    ? t("fileExplorer.selectedItems", {
+                        selected: footerStats.selectedItemCount,
+                        total: footerStats.totalItemCount,
+                      })
+                    : t("fileExplorer.totalItems", { count: footerStats.totalItemCount })}
+                </span>
+                <span>{footerSizeText}</span>
               </>
             )}
           </div>

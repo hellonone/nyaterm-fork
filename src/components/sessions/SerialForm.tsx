@@ -1,7 +1,10 @@
 import { Check, ChevronDown } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { MdChevronRight } from "react-icons/md";
+import { ConnectionRecordingSettings } from "@/components/sessions/ConnectionRecordingSettings";
 import { Button } from "@/components/ui/button";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -12,6 +15,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   isValidSerialBaudRate,
   MAX_SERIAL_BAUD_RATE,
@@ -20,6 +24,7 @@ import {
   SERIAL_BAUD_RATE_OPTIONS,
 } from "@/lib/serial";
 import { cn } from "@/lib/utils";
+import type { RecordingMode } from "@/types/global";
 
 interface SerialPortOption {
   unavailable?: boolean;
@@ -43,6 +48,12 @@ interface SerialFormProps {
   setStopBits: (v: string) => void;
   backspaceMode: string;
   setBackspaceMode: (v: string) => void;
+  recordingUseGlobal: boolean;
+  setRecordingUseGlobal: (v: boolean) => void;
+  recordingAutoStart: boolean;
+  setRecordingAutoStart: (v: boolean) => void;
+  recordingMode: RecordingMode;
+  setRecordingMode: (v: RecordingMode) => void;
   encoding: string;
   setEncoding: (v: string) => void;
 }
@@ -204,10 +215,17 @@ export function SerialForm({
   setStopBits,
   backspaceMode,
   setBackspaceMode,
+  recordingUseGlobal,
+  setRecordingUseGlobal,
+  recordingAutoStart,
+  setRecordingAutoStart,
+  recordingMode,
+  setRecordingMode,
   encoding,
   setEncoding,
 }: SerialFormProps) {
   const { t } = useTranslation();
+  const [advancedOpen, setAdvancedOpen] = useState(false);
 
   return (
     <div className="space-y-3 w-full">
@@ -269,7 +287,7 @@ export function SerialForm({
           <BaudRatePicker value={baudRate} onValueChange={setBaudRate} />
         </div>
       </div>
-      <div className="grid grid-cols-[4.5rem_minmax(8rem,1fr)_4.5rem_10rem] gap-3">
+      <div className="grid grid-cols-[4.5rem_minmax(8rem,1fr)_4.5rem] gap-3">
         <div className="min-w-0">
           <Label className="text-xs font-medium text-foreground/80">
             {t("dialog.dataBits", "Data Bits")}
@@ -318,36 +336,73 @@ export function SerialForm({
             </SelectContent>
           </Select>
         </div>
-        <div className="min-w-0">
-          <Label className="text-xs font-medium text-foreground/80">
-            {t("dialog.backspaceMode", "Backspace Mode")}
-          </Label>
-          <Select value={backspaceMode} onValueChange={setBackspaceMode}>
-            <SelectTrigger className="mt-1 h-8 text-xs font-normal">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="ctrl_h">{t("dialog.backspaceCtrlH", "Ctrl+H (BS)")}</SelectItem>
-              <SelectItem value="del">{t("dialog.backspaceDel", "DEL (0x7F)")}</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
       </div>
-      <div className="max-w-xs">
-        <Label className="text-xs font-medium text-foreground/80">{t("connection.encoding")}</Label>
-        <Select value={encoding} onValueChange={setEncoding}>
-          <SelectTrigger className="mt-1 h-8 w-full text-xs">
-            <SelectValue placeholder={t("connection.encodingFollowGlobal")} />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="global">{t("connection.encodingFollowGlobal")}</SelectItem>
-            <SelectItem value="UTF-8">UTF-8</SelectItem>
-            <SelectItem value="GBK">GBK</SelectItem>
-            <SelectItem value="GB2312">GB2312</SelectItem>
-            <SelectItem value="GB18030">GB18030</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
+      <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
+        <CollapsibleTrigger className="group flex w-full items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground">
+          <MdChevronRight
+            className={`text-sm transition-transform duration-200 ${advancedOpen ? "rotate-90" : ""}`}
+          />
+          <span>{t("dialog.advancedConfig")}</span>
+        </CollapsibleTrigger>
+        <CollapsibleContent className="mt-3">
+          <Tabs defaultValue="terminal" className="w-full">
+            <TabsList className="grid h-8 w-full grid-cols-1 pointer-events-auto">
+              <TabsTrigger value="terminal" className="text-xs">
+                {t("dialog.encodingSettings")}
+              </TabsTrigger>
+            </TabsList>
+            <TabsContent value="terminal" className="mt-3 border-0 outline-none">
+              <div className="space-y-3 rounded-lg border bg-accent/25 p-3">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <Label className="text-xs font-medium text-foreground/80">
+                      {t("dialog.backspaceMode", "Backspace Mode")}
+                    </Label>
+                    <Select value={backspaceMode} onValueChange={setBackspaceMode}>
+                      <SelectTrigger className="mt-1 h-8 text-xs font-normal">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="ctrl_h">
+                          {t("dialog.backspaceCtrlH", "Ctrl+H (BS)")}
+                        </SelectItem>
+                        <SelectItem value="del">{t("dialog.backspaceDel", "DEL (0x7F)")}</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label className="text-xs font-medium text-foreground/80">
+                      {t("connection.encoding")}
+                    </Label>
+                    <Select value={encoding} onValueChange={setEncoding}>
+                      <SelectTrigger className="mt-1 h-8 w-full text-xs">
+                        <SelectValue placeholder={t("connection.encodingFollowGlobal")} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="global">
+                          {t("connection.encodingFollowGlobal")}
+                        </SelectItem>
+                        <SelectItem value="UTF-8">UTF-8</SelectItem>
+                        <SelectItem value="GBK">GBK</SelectItem>
+                        <SelectItem value="GB2312">GB2312</SelectItem>
+                        <SelectItem value="GB18030">GB18030</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <ConnectionRecordingSettings
+                  useGlobal={recordingUseGlobal}
+                  onUseGlobalChange={setRecordingUseGlobal}
+                  autoStart={recordingAutoStart}
+                  onAutoStartChange={setRecordingAutoStart}
+                  mode={recordingMode}
+                  onModeChange={setRecordingMode}
+                />
+              </div>
+            </TabsContent>
+          </Tabs>
+        </CollapsibleContent>
+      </Collapsible>
     </div>
   );
 }

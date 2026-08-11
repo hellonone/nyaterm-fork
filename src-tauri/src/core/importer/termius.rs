@@ -1073,6 +1073,8 @@ fn prepare_termius_connections(
                 username,
                 backspace_mode: "del".to_string(),
                 x11_forwarding: false,
+                agent_endpoint: config::SshAgentEndpoint::Auto,
+                agent_forwarding: false,
                 encoding: String::new(),
             },
             group_path,

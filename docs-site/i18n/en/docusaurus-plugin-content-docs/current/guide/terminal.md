@@ -164,6 +164,12 @@ When a session produces too much output too quickly, NyaTerm can enter a tempora
 
 During that period, the app temporarily suppresses some expensive decorations and reports how many queued characters were skipped. Once pressure drops, normal rendering resumes. This is mainly intended for log storms or constantly streaming output.
 
+### Large-output drain
+
+Terminal output now passes through a batched drain before it is written to xterm.js. During high-throughput situations such as `tail -f`, build logs, or load-test output, this helps preserve input responsiveness, scrolling, and search behavior.
+
+This is not a setting you need to enable. It is the default terminal output pipeline and works together with large-output protection, line-number / timestamp gutters, and command suggestions.
+
 ## SSH-specific helpers
 
 ### Keep-Alive
@@ -265,6 +271,8 @@ In **Settings → Transfer**, you can also tune recording behavior:
 
 - **Auto-start recording**: begin recording as soon as a session opens, so you never forget to start it for sessions you always want captured
 - **Include timestamps**: write timestamps into the saved transcript, which helps with auditing or correlating output with wall-clock time
+
+You can also configure recording on individual saved connections. This is useful when a policy belongs to the connection itself, such as "always record production bastion sessions" or "do not record this lab device", instead of deciding manually after each session opens.
 
 If you are preparing screenshots or demos, a good combination is:
 

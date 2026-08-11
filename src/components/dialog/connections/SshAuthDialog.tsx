@@ -211,6 +211,7 @@ export function SshAuthDialog({ request, onDone }: SshAuthDialogProps) {
   const handleSubmit = async () => {
     if (!request || !canSubmit) return;
     setSubmitting(true);
+    let completed = false;
     try {
       const save =
         activeMethod === "key" || saveMode === "none"
@@ -245,6 +246,7 @@ export function SshAuthDialog({ request, onDone }: SshAuthDialogProps) {
         requestId: request.requestId,
         response,
       });
+      completed = true;
       logger.info({
         domain: "security.flow",
         event: "ssh_auth.response_submitted",
@@ -265,13 +267,16 @@ export function SshAuthDialog({ request, onDone }: SshAuthDialogProps) {
         error,
       });
     }
-    onDone(request.requestId);
+    if (completed) onDone(request.requestId);
+    setSubmitting(false);
   };
 
   const handleCancel = async () => {
     if (!request) return;
+    let completed = false;
     try {
       await invoke("cancel_ssh_auth_request", { requestId: request.requestId });
+      completed = true;
     } catch (error) {
       logger.error({
         domain: "security.flow",
@@ -281,7 +286,7 @@ export function SshAuthDialog({ request, onDone }: SshAuthDialogProps) {
         error,
       });
     }
-    onDone(request.requestId);
+    if (completed) onDone(request.requestId);
   };
 
   return (

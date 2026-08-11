@@ -1,8 +1,11 @@
 pub mod crypto;
+mod gc;
 mod github_gist_auth;
 mod history_log;
 mod manager;
+mod migration;
 mod operator;
+mod protocol;
 mod remote;
 
 pub use github_gist_auth::{

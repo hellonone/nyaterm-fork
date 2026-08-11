@@ -46,8 +46,41 @@ pub enum AppError {
     #[error("Crypto error: {0}")]
     Crypto(String),
 
+    #[error("{0}")]
+    CloudSync(#[from] CloudSyncError),
+
     #[error("Translation error: {0}")]
     Translation(String),
+}
+
+#[derive(Debug, thiserror::Error, Clone, PartialEq, Eq)]
+pub enum CloudSyncError {
+    #[error(
+        "Remote sync metadata is inconsistent: latest points to {revision} but the referenced snapshot is missing."
+    )]
+    SnapshotMissing { revision: String },
+
+    #[error(
+        "Remote sync snapshot revision mismatch: latest points to {pointer_revision} but snapshot contains {snapshot_revision}."
+    )]
+    RevisionMismatch {
+        pointer_revision: String,
+        snapshot_revision: String,
+    },
+
+    #[error("Remote sync snapshot hash mismatch: expected {expected} but got {actual}.")]
+    HashMismatch { expected: String, actual: String },
+
+    #[error(
+        "Remote sync was updated by another device: expected {expected_revision:?} but found {actual_revision:?}."
+    )]
+    ConcurrentUpdate {
+        expected_revision: Option<String>,
+        actual_revision: Option<String>,
+    },
+
+    #[error("Remote sync snapshot {revision} is corrupted.")]
+    CorruptedSnapshot { revision: String },
 }
 
 impl Serialize for AppError {

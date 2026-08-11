@@ -3,6 +3,9 @@ use std::io;
 use std::sync::Arc;
 use std::time::Duration;
 
+#[cfg(test)]
+use std::sync::Mutex as StdMutex;
+
 use base64::Engine;
 use base64::engine::general_purpose::{STANDARD as BASE64_STANDARD, URL_SAFE_NO_PAD};
 use http::header::{AUTHORIZATION, WWW_AUTHENTICATE};
@@ -36,6 +39,8 @@ pub(super) enum CloudRemote {
     OpenDal(Operator),
     GiteeSnippet(GiteeSnippetRemote),
     GithubGist(GithubGistRemote),
+    #[cfg(test)]
+    Memory(MemoryRemote),
 }
 
 impl CloudRemote {
@@ -44,6 +49,8 @@ impl CloudRemote {
             Self::OpenDal(operator) => operator.create_dir(path).await.map_err(map_storage_error),
             Self::GiteeSnippet(_) => Ok(()),
             Self::GithubGist(_) => Ok(()),
+            #[cfg(test)]
+            Self::Memory(remote) => remote.create_dir(path),
         }
     }
 
@@ -52,18 +59,8 @@ impl CloudRemote {
             Self::OpenDal(operator) => operator.exists(path).await.map_err(map_storage_error),
             Self::GiteeSnippet(remote) => remote.exists(path).await,
             Self::GithubGist(remote) => remote.exists(path).await,
-        }
-    }
-
-    pub(super) async fn read(&self, path: &str) -> AppResult<Vec<u8>> {
-        match self {
-            Self::OpenDal(operator) => Ok(operator
-                .read(path)
-                .await
-                .map_err(map_storage_error)?
-                .to_vec()),
-            Self::GiteeSnippet(remote) => remote.read(path).await,
-            Self::GithubGist(remote) => remote.read(path).await,
+            #[cfg(test)]
+            Self::Memory(remote) => remote.exists(path),
         }
     }
 
@@ -83,6 +80,8 @@ impl CloudRemote {
             }
             Self::GiteeSnippet(remote) => remote.read_if_exists(path).await,
             Self::GithubGist(remote) => remote.read_if_exists(path).await,
+            #[cfg(test)]
+            Self::Memory(remote) => remote.read_if_exists(path),
         }
     }
 
@@ -97,6 +96,8 @@ impl CloudRemote {
             }
             Self::GiteeSnippet(remote) => remote.write(path, &content).await,
             Self::GithubGist(remote) => remote.write(path, &content).await,
+            #[cfg(test)]
+            Self::Memory(remote) => remote.write(path, content),
         }
     }
 
@@ -105,6 +106,8 @@ impl CloudRemote {
             Self::OpenDal(operator) => operator.delete(path).await.map_err(map_storage_error),
             Self::GiteeSnippet(remote) => remote.delete(path).await,
             Self::GithubGist(remote) => remote.delete(path).await,
+            #[cfg(test)]
+            Self::Memory(remote) => remote.delete(path),
         }
     }
 
@@ -125,7 +128,85 @@ impl CloudRemote {
             }
             Self::GiteeSnippet(remote) => remote.list_files(path).await,
             Self::GithubGist(remote) => remote.list_files(path).await,
+            #[cfg(test)]
+            Self::Memory(remote) => remote.list_files(path),
         }
+    }
+}
+
+#[cfg(test)]
+#[derive(Clone, Default)]
+pub(super) struct MemoryRemote {
+    files: Arc<StdMutex<HashMap<String, Vec<u8>>>>,
+    fail_writes: Arc<StdMutex<Vec<String>>>,
+}
+
+#[cfg(test)]
+impl MemoryRemote {
+    pub(super) fn with_files(files: HashMap<String, Vec<u8>>) -> Self {
+        Self {
+            files: Arc::new(StdMutex::new(files)),
+            fail_writes: Arc::new(StdMutex::new(Vec::new())),
+        }
+    }
+
+    pub(super) fn fail_next_write_containing(&self, needle: &str) {
+        self.fail_writes
+            .lock()
+            .expect("lock fail writes")
+            .push(needle.to_string());
+    }
+
+    pub(super) fn file(&self, path: &str) -> Option<Vec<u8>> {
+        self.files.lock().expect("lock files").get(path).cloned()
+    }
+
+    fn create_dir(&self, _path: &str) -> AppResult<()> {
+        Ok(())
+    }
+
+    fn exists(&self, path: &str) -> AppResult<bool> {
+        Ok(self.files.lock().expect("lock files").contains_key(path))
+    }
+
+    fn read_if_exists(&self, path: &str) -> AppResult<Option<Vec<u8>>> {
+        Ok(self.files.lock().expect("lock files").get(path).cloned())
+    }
+
+    fn write(&self, path: &str, content: Vec<u8>) -> AppResult<()> {
+        let mut fail_writes = self.fail_writes.lock().expect("lock fail writes");
+        if let Some(index) = fail_writes
+            .iter()
+            .position(|needle| path.contains(needle.as_str()))
+        {
+            fail_writes.remove(index);
+            return Err(AppError::Io(io::Error::new(
+                io::ErrorKind::Other,
+                format!("injected memory write failure for {path}"),
+            )));
+        }
+        drop(fail_writes);
+        self.files
+            .lock()
+            .expect("lock files")
+            .insert(path.to_string(), content);
+        Ok(())
+    }
+
+    fn delete(&self, path: &str) -> AppResult<()> {
+        self.files.lock().expect("lock files").remove(path);
+        Ok(())
+    }
+
+    fn list_files(&self, path: &str) -> AppResult<Vec<String>> {
+        Ok(self
+            .files
+            .lock()
+            .expect("lock files")
+            .keys()
+            .filter(|key| key.starts_with(path))
+            .cloned()
+            .collect())
     }
 }
 
@@ -478,12 +559,6 @@ impl GiteeSnippetRemote {
         Ok(snippet.files.contains_key(&gitee_remote_filename(path)))
     }
 
-    async fn read(&self, path: &str) -> AppResult<Vec<u8>> {
-        self.read_if_exists(path)
-            .await?
-            .ok_or_else(|| AppError::Config(format!("Gitee snippet file '{}' not found", path)))
-    }
-
     async fn read_if_exists(&self, path: &str) -> AppResult<Option<Vec<u8>>> {
         let filename = gitee_remote_filename(path);
         if let Ok(content) = self.fetch_raw_filename(&filename).await {
@@ -715,12 +790,6 @@ impl GithubGistRemote {
     async fn exists(&self, path: &str) -> AppResult<bool> {
         let gist = self.fetch_gist().await?;
         Ok(gist.files.contains_key(&github_gist_remote_filename(path)))
-    }
-
-    async fn read(&self, path: &str) -> AppResult<Vec<u8>> {
-        self.read_if_exists(path)
-            .await?
-            .ok_or_else(|| AppError::Config(format!("GitHub Gist file '{}' not found", path)))
     }
 
     async fn read_if_exists(&self, path: &str) -> AppResult<Option<Vec<u8>>> {

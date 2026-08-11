@@ -1,7 +1,8 @@
 use crate::config;
 use crate::core::monitoring::stats::RemoteStatsSampler;
 use crate::core::ssh::{
-    self, HostKeyVerifyManager, PendingAuthManager, PendingSshAuthManager, SshAuthResponse,
+    self, HostKeyVerifyManager, PendingAuthManager, PendingSshAgentAuthManager,
+    PendingSshAuthManager, SshAgentAuthAction, SshAuthResponse,
 };
 use crate::core::zmodem::ZmodemUploadConflictMode;
 use crate::core::{
@@ -123,10 +124,17 @@ fn normalize_temporary_ssh_config(mut config: ssh::SshConfig, encoding: &str) ->
     };
     config.x11_forwarding = false;
     config.x11_display = String::new();
+    config.agent_endpoint = crate::config::SshAgentEndpoint::Auto;
+    config.agent_forwarding = false;
     config.proxy = None;
     config.proxy_jump = None;
     config.post_login = None;
     config.ssh_algorithms = None;
+    if config.ssh_profile == crate::config::SshProfile::NetworkDevice
+        && config.terminal_type == crate::config::SshTerminalType::Xterm256Color
+    {
+        config.terminal_type = crate::config::resolve_ssh_terminal_type(&config.ssh_profile, None);
+    }
     // Inherit encoding from global settings only when no explicit value was provided.
     if config.encoding.trim().is_empty() {
         config.encoding = encoding.to_string();
@@ -766,7 +774,7 @@ pub async fn write_to_session(
     let origin = origin.unwrap_or(InputOrigin::Keyboard);
     let sensitivity = sensitivity.unwrap_or_default();
     let automated = !matches!(origin, InputOrigin::Keyboard | InputOrigin::SyncInput);
-    state
+    let result = state
         .send_command(
             &session_id,
             SessionCommand::Write {
@@ -776,7 +784,35 @@ pub async fn write_to_session(
                 sensitivity,
             },
         )
-        .await
+        .await;
+
+    if let Err(error) = &result {
+        match error {
+            AppError::SessionNotFound(_) => {
+                tracing::warn!(
+                    session_id = %session_id,
+                    reason = "session_not_found",
+                    "Terminal input rejected because SSH session is no longer active"
+                );
+            }
+            AppError::Channel(_) => {
+                tracing::warn!(
+                    session_id = %session_id,
+                    reason = "command_channel_closed",
+                    "Terminal input rejected because SSH session is no longer active"
+                );
+            }
+            _ => {
+                tracing::warn!(
+                    session_id = %session_id,
+                    error = %error,
+                    "Terminal input rejected"
+                );
+            }
+        }
+    }
+
+    result
 }
 
 #[tauri::command]
@@ -1313,6 +1349,46 @@ pub async fn cancel_ssh_auth_request(
         client_timestamp: None,
     });
     Ok(())
+}
+
+#[tauri::command]
+pub async fn respond_ssh_agent_auth(
+    state: tauri::State<'_, Arc<PendingSshAgentAuthManager>>,
+    request_id: String,
+    action: String,
+) -> AppResult<()> {
+    let action = match action.as_str() {
+        "retry" => SshAgentAuthAction::Retry,
+        "cancel" => SshAgentAuthAction::Cancel,
+        _ => {
+            return Err(AppError::Config(
+                "Unknown SSH Agent auth action".to_string(),
+            ));
+        }
+    };
+    if state.respond(&request_id, action).await {
+        Ok(())
+    } else {
+        Err(AppError::Auth(format!(
+            "No pending SSH Agent authentication request with id '{}'",
+            request_id
+        )))
+    }
+}
+
+#[tauri::command]
+pub async fn cancel_ssh_agent_auth(
+    state: tauri::State<'_, Arc<PendingSshAgentAuthManager>>,
+    request_id: String,
+) -> AppResult<()> {
+    if state.respond(&request_id, SshAgentAuthAction::Cancel).await {
+        Ok(())
+    } else {
+        Err(AppError::Auth(format!(
+            "No pending SSH Agent authentication request with id '{}'",
+            request_id
+        )))
+    }
 }
 
 #[tauri::command]

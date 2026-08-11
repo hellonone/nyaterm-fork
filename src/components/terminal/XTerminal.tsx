@@ -193,6 +193,16 @@ function isLocalBackspaceEvent(event: KeyboardEvent, sessionType: SessionType): 
   return event.key === "Backspace" || (event.key === "Delete" && event.code === "Backspace");
 }
 
+function isSessionNotFoundError(error: unknown): boolean {
+  const message =
+    typeof error === "string"
+      ? error
+      : error instanceof Error
+        ? error.message
+        : String(error ?? "");
+  return message.toLowerCase().includes("session") && message.toLowerCase().includes("not found");
+}
+
 /**
  * xterm.js terminal for a session. Handles OSC 133 shell integration (or fallback prompt
  * detection), fuzzy command history suggestions, and resize/fit. Key props: sessionId, active.
@@ -2046,6 +2056,16 @@ export default function XTerminal({
       })();
     };
 
+    const enterDisconnectedStateIfAttachSessionMissing = (error: unknown) => {
+      if (!isSessionNotFoundError(error)) return false;
+      enterDisconnectedState({
+        title: tRef.current("terminal.sessionDisconnected"),
+        titleColor: "31",
+        showReconnectPrompt: true,
+      });
+      return true;
+    };
+
     const repaintVisibleTerminal = () => {
       if (!visibleRef.current || !isTerminalAlive()) return;
       requestAnimationFrame(() => {
@@ -2139,6 +2159,7 @@ export default function XTerminal({
         hibernationPhaseRef.current = "idle";
         logHibernation("rollback", "Rolled back detached terminal renderer", { reason, epoch });
       } catch (error) {
+        if (enterDisconnectedStateIfAttachSessionMissing(error)) return;
         hibernationPhaseRef.current = "failed";
         logHibernation(
           "fail",
@@ -2461,7 +2482,7 @@ export default function XTerminal({
           { reason: "terminal_ready" },
           error,
         );
-        // The session may already be gone during mount/unmount races.
+        enterDisconnectedStateIfAttachSessionMissing(error);
       }
     };
     void setupListeners();

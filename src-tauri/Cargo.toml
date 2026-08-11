@@ -1,6 +1,6 @@
 [package]
 name = "nyaterm"
-version = "1.2.0"
+version = "1.2.1"
 description = "A modern remote terminal workspace built with Tauri, React, and Rust."
 authors = ["Kang"]
 edition = "2024"
@@ -157,10 +157,11 @@ encoding_rs = "0.8"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "bmp", "gif", "webp"] }
 rqrr = "0.9"
 serialport = "4"
-ironrdp = { version = "0.17", default-features = false, features = ["client", "connector", "rustls", "input", "pdu"] }
+ironrdp = { version = "0.17", default-features = false, features = ["client", "client-clipboard", "cliprdr", "connector", "core", "rustls", "input", "pdu"] }
 smallvec = "1"
 strip-ansi-escapes = "0.2"
 arboard = { version = "3", features = ["wayland-data-control"] }
+x509-cert = { version = "0.2", default-features = false, features = ["std"] }
 opendal = { version = "0.58", default-features = false, features = [
     "executors-tokio",
     "reqwest-rustls-tls",
@@ -199,6 +200,7 @@ windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
     "Win32_System_LibraryLoader",
     "Win32_System_Threading",
+    "Win32_UI_Input_KeyboardAndMouse",
 ] }
 windows = { version = "0.61", features = [
     "Wdk_System_SystemServices",

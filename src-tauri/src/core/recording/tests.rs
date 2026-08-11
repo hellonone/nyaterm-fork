@@ -20,6 +20,53 @@ mod tests {
             .to_string()
     }
 
+    trait RecordingManagerTestExt {
+        fn start(
+            &self,
+            session_id: &str,
+            file_path: &str,
+            include_io_labels: bool,
+            include_timestamps: bool,
+        ) -> crate::error::AppResult<String>;
+    }
+
+    impl RecordingManagerTestExt for RecordingManager {
+        fn start(
+            &self,
+            session_id: &str,
+            file_path: &str,
+            include_io_labels: bool,
+            include_timestamps: bool,
+        ) -> crate::error::AppResult<String> {
+            let profile = RecordingProfile {
+                mode: RecordingMode::Transcript,
+                base_path: std::env::temp_dir(),
+                path_template: "recording.log".to_string(),
+                include_timestamps,
+                include_io_labels,
+                include_session_metadata: false,
+                rotation: RotationPolicy::Session,
+                existing_file_behavior: ExistingFileBehavior::Unique,
+                include_binary_transfer_payloads: false,
+            };
+            let context = RecordingContext {
+                session_id: session_id.to_string(),
+                session_name: session_id.to_string(),
+                connection_id: None,
+                connection_name: None,
+                group_path: None,
+                protocol: "test".to_string(),
+                host: None,
+                port: None,
+                username: None,
+                started_at: OffsetDateTime::now_local()
+                    .unwrap_or_else(|_| OffsetDateTime::now_utc()),
+            };
+
+            self.start_with_profile(session_id, context, profile, Some(PathBuf::from(file_path)))
+        }
+    }
+
     #[test]
     fn strips_terminal_escape_sequences_from_output() {
         let raw = concat!(

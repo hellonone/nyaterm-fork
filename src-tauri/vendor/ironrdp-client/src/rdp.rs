@@ -151,6 +151,16 @@ impl RdpClient {
                     }
                 }
                 ClipboardType::Enable => {
+                    if let Some(factory) = &self.config.cliprdr_factory {
+                        use crate::clipboard::ClientClipboardMessageProxy;
+                        cliprdr_factory = Some(factory(Box::new(ClientClipboardMessageProxy::new(
+                            self.input_event_sender.clone(),
+                        ))));
+                        #[cfg(windows)]
+                        {
+                            _win_clipboard = None;
+                        }
+                    } else {
                     #[cfg(windows)]
                     {
                         use crate::clipboard::ClientClipboardMessageProxy;
@@ -178,6 +188,7 @@ impl RdpClient {
                         use ironrdp_cliprdr_native::StubClipboard;
                         let stub = StubClipboard::new();
                         cliprdr_factory = Some(stub.backend_factory());
+                    }
                     }
                 }
             }
@@ -514,7 +525,7 @@ async fn connect_rdcleanpath_transport(
 
     let destination = config.destination.to_string();
     let (upgraded, server_public_key) =
-        rdcleanpath_handshake(&mut framed, &mut connector, destination, rdcp.auth_token.clone(), None).await?;
+        rdcleanpath_handshake(config, &mut framed, &mut connector, destination, rdcp.auth_token.clone(), None).await?;
 
     let connection_result = ironrdp_tokio::connect_finalize(
         upgraded,
@@ -563,6 +574,10 @@ where
         .ok_or_else(|| ironrdp_connector::general_err!("unable to extract tls server public key"))?
         .to_owned();
 
+    verify_server_certificate(config, tls_cert)
+        .await
+        .map_err(|e| ironrdp_connector::custom_err!("server certificate verification", std::io::Error::other(e)))?;
+
     let connection_result = ironrdp_tokio::connect_finalize(
         upgraded,
         connector,
@@ -577,9 +592,24 @@ where
     Ok((connection_result, upgraded_framed))
 }
 
+async fn verify_server_certificate(config: &Config, cert: x509_cert::Certificate) -> Result<(), String> {
+    let Some(verifier) = config.certificate_verifier.as_ref() else {
+        return Ok(());
+    };
+    let der = {
+        use x509_cert::der::Encode as _;
+        cert.to_der()
+            .map_err(|error| format!("failed to encode server certificate: {error}"))?
+    };
+    verifier
+        .verify_server_certificate(config.destination.name(), config.destination.port(), der)
+        .await
+}
+
 // ── RDCleanPath handshake ─────────────────────────────────────────────────────
 
 async fn rdcleanpath_handshake<S>(
+    config: &Config,
     framed: &mut ironrdp_tokio::Framed<S>,
     connector: &mut ironrdp_connector::ClientConnector,
     destination: String,
@@ -711,6 +741,10 @@ where
             .as_bytes()
             .ok_or_else(|| ironrdp_connector::general_err!("subject public key BIT STRING is not aligned"))?
             .to_owned();
+
+        verify_server_certificate(config, cert.clone())
+            .await
+            .map_err(|e| ironrdp_connector::custom_err!("server certificate verification", std::io::Error::other(e)))?;
 
         let should_upgrade = ironrdp_tokio::skip_connect_begin(connector);
         let upgraded = ironrdp_tokio::mark_as_upgraded(should_upgrade, connector);

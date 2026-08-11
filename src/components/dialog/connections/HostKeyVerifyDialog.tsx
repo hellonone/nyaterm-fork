@@ -25,7 +25,7 @@ export interface HostKeyVerifyRequest {
 
 interface HostKeyVerifyDialogProps {
   request: HostKeyVerifyRequest | null;
-  onDone: () => void;
+  onDone: (requestId: string) => void;
 }
 
 export function HostKeyVerifyDialog({ request, onDone }: HostKeyVerifyDialogProps) {
@@ -35,11 +35,13 @@ export function HostKeyVerifyDialog({ request, onDone }: HostKeyVerifyDialogProp
   const handleAccept = async () => {
     if (!request || submitting) return;
     setSubmitting(true);
+    let completed = false;
     try {
       await invoke("respond_host_key_verify", {
         requestId: request.requestId,
         accepted: true,
       });
+      completed = true;
       logger.info({
         domain: "security.flow",
         event: "host_key.user_accepted",
@@ -56,17 +58,19 @@ export function HostKeyVerifyDialog({ request, onDone }: HostKeyVerifyDialogProp
       });
     }
     setSubmitting(false);
-    onDone();
+    if (completed) onDone(request.requestId);
   };
 
   const handleReject = async () => {
     if (!request) return;
     setSubmitting(true);
+    let completed = false;
     try {
       await invoke("respond_host_key_verify", {
         requestId: request.requestId,
         accepted: false,
       });
+      completed = true;
       logger.info({
         domain: "security.flow",
         event: "host_key.user_rejected",
@@ -83,7 +87,7 @@ export function HostKeyVerifyDialog({ request, onDone }: HostKeyVerifyDialogProp
       });
     }
     setSubmitting(false);
-    onDone();
+    if (completed) onDone(request.requestId);
   };
 
   return (

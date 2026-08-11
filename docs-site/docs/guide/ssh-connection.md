@@ -34,11 +34,12 @@ SSH 仍然是 NyaTerm 最完整的一类会话。除了基础登录外，SSH 连
 
 ### 认证方式
 
-NyaTerm 支持三种 SSH 认证方式：
+NyaTerm 支持四种 SSH 认证方式：
 
 - **密码**
 - **私钥**
 - **无认证（none）**
+- **SSH Agent**
 
 你可以直接选择已经保存的密码或私钥，而不必每次重复填写。
 
@@ -62,6 +63,14 @@ NyaTerm 支持三种 SSH 认证方式：
 
 私钥和密码都可以在 **Security/Auth** 面板中统一管理。
 
+#### SSH Agent 认证
+
+SSH Agent 模式只使用本机 Agent 提供的签名能力，私钥和硬件密钥不会导入 NyaTerm。高级配置中的 endpoint 会根据当前设备筛选：macOS/Linux 提供自动发现、环境变量和 Unix 域套接字，Windows 提供自动发现、Pageant 和 Windows OpenSSH Agent。`Auto` 会使用当前平台的默认 Agent。Agent 不可用或没有匹配身份时，连接会失败并显示原因。
+
+Agent endpoint 和 forwarding 开关属于设备本地连接配置。跨设备同步时不会覆盖目标设备的这些值，因此 macOS 的 Unix socket 配置不会被同步到 Windows。
+
+当 Agent 正在等待硬件触摸、PIN 或桌面确认时，NyaTerm 会显示确认弹窗。Agent 超时或认证失败后可以选择“重试”；重试会丢弃当前连接并重新建立完整的 SSH/跳板机链路。选择“取消”会终止本次连接。
+
 ### 交互式认证请求
 
 当服务器要求额外的键盘交互输入、OTP 或重新认证时，NyaTerm 会通过专用 SSH 认证请求窗口收集信息，而不是把所有提示混在终端输出里。这样可以更清楚地区分：
@@ -72,6 +81,16 @@ NyaTerm 支持三种 SSH 认证方式：
 - 需要重新开始的认证流程
 
 如果某次认证请求来自未预期的主机或会话，请先核对连接信息再输入敏感内容。
+
+### 连接类型与终端类型
+
+SSH 表单提供 **连接类型** 和 **终端类型** 设置。
+
+**标准服务器** 适合普通 Linux / Unix shell，会保留 SFTP 浏览、目录跟随、Shell 检测、Shell Integration、远程资源统计和自动图标识别等能力。
+
+**网络设备** 适合交换机、路由器等非 Linux shell 的设备 CLI。选择后，NyaTerm 会在运行时关闭 SFTP 浏览、目录跟随、Shell 检测、Shell Integration、远程资源统计和自动图标识别，避免把设备 CLI 当作完整 shell 探测；这个选择不会改写已保存的 SFTP 选项。
+
+终端类型会影响 SSH 会话向远端声明的 `$TERM`，可在 `xterm-256color`、`xterm`、`vt100`、`vt220`、`ansi`、`linux` 之间选择。连接老旧设备或字符界面异常时，可以尝试更保守的终端类型。
 
 ## 高级配置
 
@@ -94,6 +113,14 @@ SSH 表单的高级区域可以把连接从“能连上”扩展成“适合日�
 - 主机
 - 端口
 - 用户名 / 密码
+
+### SSH Agent 转发
+
+在高级配置的 **SSH Agent** 页签中可以单独启用 Agent 转发。未勾选时，NyaTerm 不会因为转发而建立本地 Agent 连接，也不会向服务器发送转发请求；如果认证方式本身选择了 SSH Agent，认证仍会使用 Agent。勾选后仅交互式终端会请求转发，SFTP、隧道和跳板机连接不会隐式开启本地 Agent 转发。
+
+:::warning
+Agent 转发会让远端进程能够通过 SSH 使用本机 Agent 的签名能力。仅对可信服务器启用，并在不需要时保持关闭。Agent endpoint 和 forwarding 开关属于设备本地连接配置，不会把硬件密钥或私钥同步到云端。
+:::
 
 ### 跳板机
 
@@ -254,15 +281,17 @@ JSON 顶层字段：
 - `local_terminal`
 - `telnet`
 - `serial`
+- `rdp`
 
 SSH 认证支持：
 
 - 直接密码：`"auth": { "mode": "password", "password": "replace-me" }`
 - 已保存密码：`"auth": { "mode": "password", "password_ref": "prod-root-password" }`
 - 已保存密钥：`"auth": { "mode": "key", "key_ref": "ops-ed25519" }`
+- SSH Agent：`"auth": { "mode": "agent" }`
 - 无认证：`"auth": { "mode": "none" }`
 
-`password` 与 `password_ref` 二选一；`key` 模式必须提供 `key_ref`。`ref` 只在当前 JSON 文件内有效，导入后 NyaTerm 会生成真实的本地 ID。
+`password` 与 `password_ref` 二选一；`key` 模式必须提供 `key_ref`。`agent` 模式不会导入私钥，只会在连接时使用当前设备可用的 SSH Agent。`ref` 只在当前 JSON 文件内有效，导入后 NyaTerm 会生成真实的本地 ID。
 
 :::warning
 JSON 文件中的密码和私钥是明文。导入后请删除该文件，或至少按敏感文件方式保存。

@@ -52,6 +52,7 @@ interface SendCommandPanelProps {
   sessionTargets: SendCommandSessionTarget[];
   draft?: SendCommandPanelDraft | null;
   onDraftConsumed?: () => void;
+  onSendingChange?: (isSending: boolean) => void;
 }
 
 interface SendProgress {
@@ -263,6 +264,7 @@ export default function SendCommandPanel({
   sessionTargets,
   draft,
   onDraftConsumed,
+  onSendingChange,
 }: SendCommandPanelProps) {
   const { t } = useTranslation();
   const [dataType, setDataType] = useState<SendCommandDataType>("text");
@@ -570,6 +572,7 @@ export default function SendCommandPanel({
     cancelRef.current = false;
     sendingRef.current = true;
     setIsSending(true);
+    onSendingChange?.(true);
     setProgress(
       count === null || count > 1 || units.length > 1
         ? {
@@ -636,6 +639,7 @@ export default function SendCommandPanel({
       cancelRef.current = false;
       sendingRef.current = false;
       setIsSending(false);
+      onSendingChange?.(false);
       setProgress(null);
       if (dataType === "hex") {
         hexInputRef.current?.focus();
@@ -649,6 +653,7 @@ export default function SendCommandPanel({
     dataType,
     getDefaultInterval,
     intervalInput,
+    onSendingChange,
     t,
     targetKind,
     targetSessionIds,

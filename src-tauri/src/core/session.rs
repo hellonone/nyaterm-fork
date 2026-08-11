@@ -5,7 +5,7 @@
 
 use super::history::{CommandHistoryStore, sanitize_history_command};
 use super::{InputOrigin, InputSensitivity, RecordingManager};
-use crate::config::AiExecutionProfile;
+use crate::config::{AiExecutionProfile, SshProfile};
 use crate::core::capture::CapturedOutput;
 use crate::core::zmodem::{ZmodemPreparedUpload, ZmodemUploadConflictMode};
 use crate::error::{AppError, AppResult};
@@ -93,9 +93,19 @@ pub struct SessionInfo {
     /// True when the remote file browser is enabled for this session.
     #[serde(default = "default_remote_file_browser_enabled")]
     pub remote_file_browser_enabled: bool,
+    /// True when Linux-style remote system statistics are enabled for this session.
+    #[serde(default = "default_remote_stats_enabled")]
+    pub remote_stats_enabled: bool,
+    /// SSH runtime profile used for capability gating on the frontend.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ssh_profile: Option<SshProfile>,
 }
 
 fn default_remote_file_browser_enabled() -> bool {
+    true
+}
+
+fn default_remote_stats_enabled() -> bool {
     true
 }
 
@@ -743,6 +753,8 @@ mod tests {
                 ai_execution_profile: AiExecutionProfile::Auto,
                 injection_active,
                 remote_file_browser_enabled: true,
+                remote_stats_enabled: true,
+                ssh_profile: None,
             },
             cmd_tx,
             ssh_config: None,

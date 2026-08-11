@@ -231,12 +231,20 @@ pub struct CloudSyncState {
 pub struct CloudConflictPreview {
     pub detected_at_ms: u64,
     pub provider: String,
+    #[serde(default = "default_conflict_kind")]
+    pub kind: String,
     pub local_payload_hash: String,
     pub remote_payload_hash: String,
     pub remote_revision: String,
     pub remote_created_at_ms: u64,
     #[serde(default)]
     pub remote_device_id: String,
+    #[serde(default)]
+    pub recovery_revision: Option<String>,
+    #[serde(default)]
+    pub recovery_payload_hash: Option<String>,
+    #[serde(default)]
+    pub recovery_created_at_ms: Option<u64>,
     pub message: String,
 }
 
@@ -320,6 +328,10 @@ fn default_sync_debounce_seconds() -> u64 {
 
 fn default_status_state() -> String {
     "idle".to_string()
+}
+
+fn default_conflict_kind() -> String {
+    "content_conflict".to_string()
 }
 
 pub fn load_cloud_sync_settings(app: &AppHandle) -> AppResult<CloudSyncSettings> {

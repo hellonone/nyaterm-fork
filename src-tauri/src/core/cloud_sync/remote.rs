@@ -13,6 +13,7 @@ use super::operator::CloudRemote;
 pub(super) const SYNC_CURRENT_FILE: &str = "sync/current.redb.enc";
 pub(super) const SYNC_LATEST_FILE: &str = "sync/latest.redb";
 pub(super) const SYNC_SNAPSHOTS_DIR: &str = "sync/snapshots/";
+pub(super) const REMOTE_SYNC_POINTER_SCHEMA_VERSION: u32 = 2;
 
 const REMOTE_SYNC_POINTER_TABLE: TableDefinition<&str, &str> = TableDefinition::new("sync_pointer");
 
@@ -20,11 +21,17 @@ const REMOTE_SYNC_POINTER_KEY: &str = "latest";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(super) struct RemoteSyncPointer {
+    #[serde(default = "default_remote_sync_pointer_schema_version")]
+    pub schema_version: u32,
     pub revision_id: String,
     pub created_at_ms: u64,
     pub payload_hash: String,
     pub device_id: String,
     pub app_version: String,
+}
+
+fn default_remote_sync_pointer_schema_version() -> u32 {
+    1
 }
 
 pub(super) fn remote_path(base_root: &str, child: &str) -> String {
@@ -211,6 +218,7 @@ mod tests {
     #[test]
     fn remote_redb_metadata_roundtrips() {
         let pointer = RemoteSyncPointer {
+            schema_version: REMOTE_SYNC_POINTER_SCHEMA_VERSION,
             revision_id: "rev".to_string(),
             created_at_ms: 1,
             payload_hash: "hash".to_string(),
@@ -226,6 +234,7 @@ mod tests {
 
         assert_eq!(decoded.revision_id, pointer.revision_id);
         assert_eq!(decoded.payload_hash, pointer.payload_hash);
+        assert_eq!(decoded.schema_version, REMOTE_SYNC_POINTER_SCHEMA_VERSION);
     }
 
     #[test]

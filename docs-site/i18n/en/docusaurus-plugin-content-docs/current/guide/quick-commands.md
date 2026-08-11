@@ -68,10 +68,11 @@ The Quick Commands panel supports these management patterns:
 
 - Search by label, command content, or description
 - Filter by category from the dropdown
+- Create, rename, move, and sort categories
 - Keep pinned commands at the top
 - Sort by modes such as name, usage frequency, or recently used
 - Switch between compact and regular views to fit different panel widths
-- Reuse existing categories when creating new commands
+- Reuse existing categories when creating new commands; imports also try to preserve the category structure from the external file
 
 That makes it useful for organizing sets like:
 
@@ -80,6 +81,16 @@ That makes it useful for organizing sets like:
 - Database
 - Release scripts
 - Environment inspection
+
+## Export quick commands
+
+Click **Export Commands** in the upper-right corner of the Quick Commands panel to export the current commands and categories as a NyaTerm JSON file. The exported file is useful for:
+
+- Merging into another device with **Import Quick Commands**
+- Sharing a team template
+- Keeping a rollback copy before reorganizing many categories
+
+The export does not include terminal history or other application settings. It only covers quick commands and their categories.
 
 ## Import quick commands
 

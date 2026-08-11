@@ -22,6 +22,8 @@ export interface AppSupportInfo {
 
 /** AI Agent command execution wrapper profile. */
 export type AIExecutionProfile = "auto" | "posix" | "powershell" | "cmd" | "send_only" | "disabled";
+export type SshProfile = "standard" | "network_device";
+export type SshTerminalType = "xterm-256color" | "xterm" | "vt100" | "vt220" | "ansi" | "linux";
 
 /** A group of sessions whose terminal input is broadcast to all members. */
 export interface SyncGroup {
@@ -53,6 +55,10 @@ export interface SessionInfo {
   injection_active: boolean;
   /** True when the remote file browser is enabled for this session. */
   remote_file_browser_enabled: boolean;
+  /** True when Linux-style remote resource stats are enabled for this session. */
+  remote_stats_enabled: boolean;
+  /** SSH runtime profile used for capability gating. */
+  ssh_profile?: SshProfile | null;
 }
 
 /** Shared fields for one session-like leaf inside a workspace tab. */
@@ -132,18 +138,30 @@ export interface SshConfig {
   backspace_mode?: string;
   x11_forwarding?: boolean;
   x11_display?: string;
+  agent_endpoint?: SshAgentEndpoint;
+  agent_forwarding?: boolean;
   proxy?: ProxySettings | null;
   proxy_jump?: SshConfig | null;
   post_login?: { command: string; delay_ms: number } | null;
   ssh_algorithms?: SshAlgorithmPreferences | null;
+  ssh_profile?: SshProfile;
+  terminal_type?: SshTerminalType;
   sftp?: SftpSettings;
   encoding?: string;
 }
 
-/** SSH authentication: none, password, or private key (PEM content). */
+/** SSH authentication: none, password, private key (PEM content), or SSH Agent. */
+export type SshAgentEndpoint =
+  | { type: "auto" }
+  | { type: "environment"; variable: string }
+  | { type: "unix_socket"; path: string }
+  | { type: "pageant" }
+  | { type: "windows_open_ssh" };
+
 export type SshAuth =
   | { type: "none" }
   | { type: "password"; password?: string | null }
+  | { type: "agent" }
   | {
       type: "key";
       key_data: string;
@@ -350,6 +368,10 @@ export interface SavedConnection {
   post_login?: ConnectionPostLogin;
   recording?: ConnectionRecordingSettings;
   ssh_algorithms?: SshAlgorithmPreferences;
+  /** SSH-only: runtime profile. Network devices skip Linux-only probes and integrations. */
+  ssh_profile?: SshProfile;
+  /** SSH-only: PTY terminal type. Omitted means profile default. */
+  terminal_type?: SshTerminalType;
   sftp?: SftpSettings;
   asset?: AssetMetadata;
   /** SSH-specific fields (present when type === "ssh"). */
@@ -388,6 +410,10 @@ export interface SavedConnection {
   auto_login?: TelnetAutoLoginConfig;
   /** SSH-only: enables X11 forwarding for remote graphical applications. */
   x11_forwarding?: boolean;
+  /** SSH-only: local Agent endpoint used for authentication and forwarding. */
+  agent_endpoint?: SshAgentEndpoint;
+  /** SSH-only: request server-side SSH Agent forwarding for the interactive shell. */
+  agent_forwarding?: boolean;
   /** Per-connection encoding override. Empty string means follow global setting. */
   encoding?: string;
   /** RDP-only: optional Windows/domain part for authentication. */
@@ -1615,11 +1641,15 @@ export interface GithubGistDeviceFlowPoll {
 export interface CloudConflictPreview {
   detected_at_ms: number;
   provider: string;
+  kind?: "content_conflict" | "remote_inconsistent";
   local_payload_hash: string;
   remote_payload_hash: string;
   remote_revision: string;
   remote_created_at_ms: number;
   remote_device_id: string;
+  recovery_revision?: string | null;
+  recovery_payload_hash?: string | null;
+  recovery_created_at_ms?: number | null;
   message: string;
 }
 

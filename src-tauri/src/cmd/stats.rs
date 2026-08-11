@@ -13,6 +13,19 @@ pub async fn get_remote_stats(
     sampler: tauri::State<'_, Arc<RemoteStatsSampler>>,
     session_id: String,
 ) -> AppResult<RemoteStats> {
+    let remote_stats_enabled = {
+        let sessions = state.sessions.lock().await;
+        let session = sessions.get(&session_id).ok_or_else(|| {
+            AppError::SessionNotFound(format!("Session '{}' not found", session_id))
+        })?;
+        session.info.remote_stats_enabled
+    };
+    if !remote_stats_enabled {
+        return Err(AppError::Config(
+            "Remote stats are disabled for this session profile".to_string(),
+        ));
+    }
+
     let output = exec_ssh_session_command(
         state.inner(),
         &session_id,

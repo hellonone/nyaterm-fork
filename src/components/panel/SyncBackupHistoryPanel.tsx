@@ -21,6 +21,7 @@ import {
   formatCloudProvider,
   formatDuration,
   formatTimestamp,
+  isRemoteInconsistentConflict,
   shortValue,
 } from "@/lib/cloudSync";
 import { getErrorMessage } from "@/lib/errors";
@@ -216,7 +217,7 @@ function SyncBackupHistoryPanel() {
   }, []);
 
   const handleResolveConflict = useCallback(
-    async (action: "download_remote" | "upload_local") => {
+    async (action: "download_remote" | "upload_local" | "recover_current_remote") => {
       setRunningAction(action);
       try {
         await invoke("resolve_cloud_sync_conflict", { action });
@@ -224,7 +225,9 @@ function SyncBackupHistoryPanel() {
         toast.success(
           action === "download_remote"
             ? t("settings.syncResolveDownloadSuccess")
-            : t("settings.syncResolveUploadSuccess"),
+            : action === "recover_current_remote"
+              ? t("settings.syncRecoverCurrentSuccess")
+              : t("settings.syncResolveUploadSuccess"),
         );
       } catch (error) {
         toast.error(getErrorMessage(error));
@@ -258,6 +261,7 @@ function SyncBackupHistoryPanel() {
 
   const syncActionDisabled = loading || runningAction !== null || status.state === "running";
   const canRunSyncAction = status.enabled && !syncActionDisabled;
+  const isRemoteInconsistent = isRemoteInconsistentConflict(status.conflict);
 
   const kindLabels = useMemo(
     () => ({
@@ -363,7 +367,9 @@ function SyncBackupHistoryPanel() {
             <div className="flex items-center gap-2 border-b border-amber-500/20 px-3 py-2.5">
               <MdWarning className="shrink-0 text-base text-amber-500" />
               <span className="flex-1 text-sm font-medium text-amber-500">
-                {t("settings.syncConflictTitle")}
+                {isRemoteInconsistent
+                  ? t("settings.syncRemoteIncompleteTitle")
+                  : t("settings.syncConflictTitle")}
               </span>
             </div>
 
@@ -384,18 +390,36 @@ function SyncBackupHistoryPanel() {
                 label={t("settings.payloadHashLabel")}
                 value={shortValue(status.conflict.remote_payload_hash, 10)}
               />
+              {isRemoteInconsistent ? (
+                <StatRow
+                  label={t("settings.currentRemoteSnapshot")}
+                  value={shortValue(status.conflict.recovery_revision, 10)}
+                />
+              ) : null}
             </div>
 
             <div className="flex gap-2 px-3 pb-3">
-              <Button
-                variant="outline"
-                size="sm"
-                className="flex-1 text-xs"
-                onClick={() => void handleResolveConflict("download_remote")}
-                disabled={runningAction !== null}
-              >
-                {t("settings.downloadRemoteVersion")}
-              </Button>
+              {isRemoteInconsistent ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="flex-1 text-xs"
+                  onClick={() => void handleResolveConflict("recover_current_remote")}
+                  disabled={runningAction !== null}
+                >
+                  {t("settings.useCurrentRemoteSnapshot")}
+                </Button>
+              ) : (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="flex-1 text-xs"
+                  onClick={() => void handleResolveConflict("download_remote")}
+                  disabled={runningAction !== null}
+                >
+                  {t("settings.downloadRemoteVersion")}
+                </Button>
+              )}
               <Button
                 size="sm"
                 className="flex-1 text-xs"

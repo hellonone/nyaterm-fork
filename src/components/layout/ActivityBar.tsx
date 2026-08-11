@@ -128,7 +128,7 @@ export default function ActivityBar({
       <div
         className="flex flex-col shrink-0 w-10 select-none"
         style={{
-          backgroundColor: "var(--df-bg)",
+          backgroundColor: "var(--df-bg-panel)",
           borderColor: "var(--df-border)",
           borderRightWidth: side === "left" ? 1 : 0,
           borderLeftWidth: side === "right" ? 1 : 0,

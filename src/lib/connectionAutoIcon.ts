@@ -36,6 +36,7 @@ export async function updateConnectionAutoIconAfterSessionStart({
     if (
       !initialConnection ||
       initialConnection.type !== "ssh" ||
+      initialConnection.ssh_profile === "network_device" ||
       !isConnectionIconAutoDetectEnabled(initialConnection)
     ) {
       return;
@@ -49,6 +50,7 @@ export async function updateConnectionAutoIconAfterSessionStart({
     if (
       !currentConnection ||
       currentConnection.type !== "ssh" ||
+      currentConnection.ssh_profile === "network_device" ||
       !isConnectionIconAutoDetectEnabled(currentConnection) ||
       currentConnection.icon === iconKey
     ) {
