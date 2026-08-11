@@ -24,6 +24,7 @@ pub(super) const PROXY_PREFIX: &str = "proxies/";
 pub(super) const TUNNEL_PREFIX: &str = "tunnels/";
 pub(super) const KNOWN_HOST_PREFIX: &str = "known_hosts/";
 pub(super) const KNOWN_HOST_RAW_PREFIX: &str = "known_hosts/raw/";
+pub(super) const RDP_KNOWN_HOST_PREFIX: &str = "rdp_known_hosts/";
 pub(super) const COMMAND_HISTORY_PREFIX: &str = "command_history/";
 pub(super) const NOTE_FOLDER_PREFIX: &str = "note_folders/";
 pub(super) const NOTE_DOCUMENT_PREFIX: &str = "notes/";
@@ -41,6 +42,8 @@ pub const OTP_ACCOUNTS_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::ne
 pub const PROXIES_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("proxies");
 pub const TUNNELS_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("tunnels");
 pub const KNOWN_HOSTS_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("known_hosts");
+pub const RDP_KNOWN_HOSTS_TABLE: TableDefinition<&str, &[u8]> =
+    TableDefinition::new("rdp_known_hosts");
 pub const COMMAND_HISTORY_TABLE: TableDefinition<&str, &[u8]> =
     TableDefinition::new("command_history");
 pub const NOTE_FOLDERS_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("note_folders");
@@ -102,6 +105,23 @@ pub(super) struct KnownHostRecord {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(super) struct KnownHostRawRecord {
     pub(super) line: String,
+    pub(super) created_at_ms: u64,
+    pub(super) updated_at_ms: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(super) struct RdpKnownHostRecord {
+    pub(super) host: String,
+    pub(super) port: u16,
+    pub(super) sha256_fingerprint: String,
+    #[serde(default)]
+    pub(super) subject: Option<String>,
+    #[serde(default)]
+    pub(super) issuer: Option<String>,
+    #[serde(default)]
+    pub(super) valid_from: Option<String>,
+    #[serde(default)]
+    pub(super) valid_to: Option<String>,
     pub(super) created_at_ms: u64,
     pub(super) updated_at_ms: u64,
 }

@@ -572,6 +572,17 @@ fn build_recording_context(
             Some(*port),
             Some(username.clone()),
         ),
+        Some(config::ConnectionType::Rdp {
+            host,
+            port,
+            username,
+            ..
+        }) => (
+            "rdp".to_string(),
+            Some(host.clone()),
+            Some(*port),
+            Some(username.clone()),
+        ),
         Some(config::ConnectionType::Serial { port_name, .. }) => {
             ("serial".to_string(), Some(port_name.clone()), None, None)
         }

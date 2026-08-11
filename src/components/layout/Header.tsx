@@ -1,6 +1,7 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { BiExport, BiImport } from "react-icons/bi";
 import { GrUpgrade } from "react-icons/gr";
@@ -73,7 +74,7 @@ import { useConfigTransfer } from "@/hooks/useConfigTransfer";
 import type { RemoteGpuOverviewState } from "@/hooks/useRemoteGpuOverview";
 import type { RemoteNpuOverviewState } from "@/hooks/useRemoteNpuOverview";
 import type { RemoteStatsState } from "@/hooks/useRemoteStats";
-import { resolveDisplayKeys } from "@/hooks/useShortcutMap";
+import { resolveDisplayKeys, resolveShortcutKeys } from "@/hooks/useShortcutMap";
 import { AVAILABLE_LANGUAGES } from "@/i18n";
 import { HEADER_STATUS_MODES, normalizeHeaderStatusMode } from "@/lib/headerStatus";
 import { invoke } from "@/lib/invoke";
@@ -567,9 +568,12 @@ interface HeaderProps {
   onOpenCommandPalette?: () => void;
   onClearTerminal?: () => void;
   onRefitTerminals?: () => void;
+  locked?: boolean;
+  onRequestQuit?: () => void;
 }
 
 interface MenuItem {
+  id?: string;
   label: string;
   action?: () => void;
   separator?: boolean;
@@ -578,6 +582,110 @@ interface MenuItem {
   disabled?: boolean;
   icon?: string;
   shortcut?: string;
+  accelerator?: string | null;
+}
+
+type MacosPredefinedRole =
+  | "services"
+  | "hide"
+  | "hideOthers"
+  | "showAll";
+
+type MacosMenuSpecItem =
+  | {
+      kind: "item";
+      id: string;
+      label: string;
+      enabled: boolean;
+      accelerator?: string | null;
+    }
+  | {
+      kind: "check";
+      id: string;
+      label: string;
+      enabled: boolean;
+      checked: boolean;
+      accelerator?: string | null;
+    }
+  | {
+      kind: "submenu";
+      id: string;
+      label: string;
+      enabled: boolean;
+      items: MacosMenuSpecItem[];
+    }
+  | { kind: "separator" }
+  | { kind: "predefined"; role: MacosPredefinedRole; label?: string };
+
+interface MacosMenuSpec {
+  menus: {
+    id: string;
+    label: string;
+    items: MacosMenuSpecItem[];
+  }[];
+}
+
+interface MacosMenuActionPayload {
+  actionId: string;
+  targetWindowLabel?: string | null;
+}
+
+const MACOS_ALLOWED_LOCKED_ACTIONS = new Set(["app.about", "app.quit"]);
+
+function getMacosAccelerator(shortcutId: string, keybindings: Record<string, string>) {
+  const keys = resolveShortcutKeys(shortcutId, keybindings);
+  const combo =
+    keys
+      .split(",")
+      .map((part) => part.trim())
+      .find((part) => part.toLowerCase().includes("meta")) ??
+    keys
+      .split(",")
+      .map((part) => part.trim())
+      .find(Boolean);
+
+  if (!combo) return null;
+
+  const pieces = combo
+    .split("+")
+    .map((part) => part.trim().toLowerCase())
+    .filter(Boolean);
+  const key = pieces.find((part) => !["meta", "cmd", "command", "ctrl", "control", "shift", "alt", "option"].includes(part));
+  if (!key || key.includes("-")) return null;
+
+  const modifiers: string[] = [];
+  if (pieces.some((part) => part === "meta" || part === "cmd" || part === "command")) {
+    modifiers.push("Cmd");
+  } else if (pieces.some((part) => part === "ctrl" || part === "control")) {
+    modifiers.push("Ctrl");
+  }
+  if (pieces.includes("shift")) modifiers.push("Shift");
+  if (pieces.some((part) => part === "alt" || part === "option")) modifiers.push("Alt");
+
+  const normalizedKey =
+    key === "comma"
+      ? ","
+      : key === "period"
+        ? "."
+        : key === "space"
+          ? "Space"
+          : key.length === 1
+            ? key.toUpperCase()
+            : key;
+
+  return [...modifiers, normalizedKey].join("+");
+}
+
+function addNativeAccelerator(
+  item: Omit<MenuItem, "shortcut" | "accelerator">,
+  shortcutId: string,
+  keybindings: Record<string, string>,
+): MenuItem {
+  return {
+    ...item,
+    shortcut: resolveDisplayKeys(shortcutId, keybindings),
+    accelerator: getMacosAccelerator(shortcutId, keybindings),
+  };
 }
 
 /** Top bar with File/Edit/View/Terminal/Help menus, theme picker, and mobile toggles. */
@@ -605,6 +713,8 @@ export default function Header({
   onOpenCommandPalette,
   onClearTerminal,
   onRefitTerminals,
+  locked = false,
+  onRequestQuit,
 }: HeaderProps) {
   const [appWindow] = useState(() => getCurrentWindow());
   const { themeName, setTheme, themeNames, terminalThemeName, setTerminalTheme } = useTheme();
@@ -620,6 +730,8 @@ export default function Header({
   const [hardwarePage, setHardwarePage] = useState({ gpu: 0, npu: 0 });
   const { t, i18n } = useTranslation();
   const { handleExport, passwordAlert } = useConfigTransfer();
+  const lastMacosMenuSpecRef = useRef("");
+  const nativeMenuActionRef = useRef<(actionId: string) => void>(() => {});
 
   const activePane = activeTab ? getActivePane(activeTab) : null;
   const activeConnection = activePane?.connectionId
@@ -744,32 +856,34 @@ export default function Header({
     { key: "help", label: t("menu.help") },
   ];
 
-  const dk = (id: string) => resolveDisplayKeys(id, appSettings.keybindings);
-
   const toggleUi = <K extends keyof typeof appSettings.ui>(key: K, value: boolean) => {
     updateUi({ [key]: value });
   };
 
   const monitorMenuItems: MenuItem[] = [
     {
+      id: "view.panels.notes",
       label: t("settings.showNotesPanel"),
       icon: "sticky_note",
       checked: appSettings.ui.show_notes_panel ?? true,
       action: () => toggleUi("show_notes_panel", !(appSettings.ui.show_notes_panel ?? true)),
     },
     {
+      id: "view.panels.remoteStats",
       label: t("settings.showRemoteStats"),
       icon: "monitor_heart",
       checked: appSettings.ui.show_remote_stats ?? true,
       action: () => toggleUi("show_remote_stats", !(appSettings.ui.show_remote_stats ?? true)),
     },
     {
+      id: "view.panels.gpuMonitor",
       label: t("settings.showGpuMonitor"),
       icon: "nvidia",
       checked: appSettings.ui.show_gpu_monitor ?? false,
       action: () => toggleUi("show_gpu_monitor", !(appSettings.ui.show_gpu_monitor ?? false)),
     },
     {
+      id: "view.panels.ascendNpuMonitor",
       label: t("settings.showAscendNpuMonitor"),
       icon: "ascend",
       checked: appSettings.ui.show_ascend_npu_monitor ?? false,
@@ -777,6 +891,7 @@ export default function Header({
         toggleUi("show_ascend_npu_monitor", !(appSettings.ui.show_ascend_npu_monitor ?? false)),
     },
     {
+      id: "view.panels.processManager",
       label: t("settings.showProcessManager"),
       icon: "list_alt",
       checked: appSettings.ui.show_process_manager ?? false,
@@ -784,6 +899,7 @@ export default function Header({
         toggleUi("show_process_manager", !(appSettings.ui.show_process_manager ?? false)),
     },
     {
+      id: "view.panels.dockerManager",
       label: t("settings.showDockerManager"),
       icon: "docker",
       checked: appSettings.ui.show_docker_manager ?? false,
@@ -793,19 +909,21 @@ export default function Header({
 
   const menus: Record<string, MenuItem[]> = {
     file: [
-      {
+      addNativeAccelerator({
+        id: "file.newSession",
         label: t("menu.newSession"),
         action: onNewSession,
         icon: "add",
-        shortcut: dk("tab.newSession"),
-      },
+      }, "tab.newSession", appSettings.keybindings),
       { label: "separator", separator: true },
       {
+        id: "file.importConfig",
         label: t("settings.importConfig"),
         action: () => setShowImportDialog(true),
         icon: "file_import",
       },
       {
+        id: "file.exportConfig",
         label: t("settings.exportConfig"),
         action: handleExport,
         icon: "file_export",
@@ -813,24 +931,29 @@ export default function Header({
     ],
     view: [
       {
+        id: "view.theme",
         label: t("menu.theme"),
         icon: "palette",
         submenu: themeNames.map((th) => ({
+          id: `view.theme.${th.id}`,
           label: th.name,
           checked: themeName === th.id,
           action: () => setTheme(th.id),
         })),
       },
       {
+        id: "view.terminalTheme",
         label: t("menu.terminalTheme"),
         icon: "terminal",
         submenu: [
           {
+            id: "view.terminalTheme.followUi",
             label: t("settings.followUiTheme"),
             checked: terminalThemeName === null,
             action: () => setTerminalTheme(null),
           },
           ...themeNames.map((th) => ({
+            id: `view.terminalTheme.${th.id}`,
             label: th.name,
             checked: terminalThemeName === th.id,
             action: () => setTerminalTheme(th.id),
@@ -838,9 +961,11 @@ export default function Header({
         ],
       },
       {
+        id: "view.language",
         label: t("menu.language"),
         icon: "translate",
         submenu: AVAILABLE_LANGUAGES.map((l) => ({
+          id: `view.language.${l.id}`,
           label: l.name,
           checked: i18n.language === l.id,
           action: () => changeLanguage(l.id),
@@ -848,15 +973,18 @@ export default function Header({
       },
       { label: "separator", separator: true },
       {
+        id: "view.headerStatus",
         label: t("menu.headerStatus"),
         icon: "info",
         submenu: [
           {
+            id: "view.headerStatus.hidden",
             label: t("headerStatus.hidden"),
             checked: !headerStatusVisible,
             action: () => setShowHeaderStatusHideConfirm(true),
           },
           ...HEADER_STATUS_MODES.map((mode) => ({
+            id: `view.headerStatus.${mode}`,
             label: t(`headerStatus.${mode}`),
             checked: headerStatusVisible && headerStatusMode === mode,
             action: () =>
@@ -868,10 +996,12 @@ export default function Header({
         ],
       },
       {
+        id: "view.panels",
         label: t("menu.panels"),
         icon: "view_sidebar",
         submenu: [
           {
+            id: "view.panels.multiOpen",
             label: t("settings.panelMultiOpen"),
             icon: "view_sidebar",
             checked: appSettings.appearance.panel_multi_open,
@@ -883,41 +1013,43 @@ export default function Header({
         ],
       },
       { label: "separator", separator: true },
-      {
+      addNativeAccelerator({
+        id: "view.zoomIn",
         label: t("menu.zoomIn"),
         action: () => handleZoom(0.1),
         icon: "zoom_in",
-        shortcut: dk("view.zoomIn"),
         disabled: !terminalZoomEnabled,
-      },
-      {
+      }, "view.zoomIn", appSettings.keybindings),
+      addNativeAccelerator({
+        id: "view.zoomOut",
         label: t("menu.zoomOut"),
         action: () => handleZoom(-0.1),
         icon: "zoom_out",
-        shortcut: dk("view.zoomOut"),
         disabled: !terminalZoomEnabled,
-      },
-      {
+      }, "view.zoomOut", appSettings.keybindings),
+      addNativeAccelerator({
+        id: "view.resetZoom",
         label: t("menu.resetZoom"),
         action: handleResetZoom,
         icon: "restart_alt",
-        shortcut: dk("view.resetZoom"),
         disabled: !terminalZoomEnabled,
-      },
+      }, "view.resetZoom", appSettings.keybindings),
     ],
     terminal: [
-      {
+      addNativeAccelerator({
+        id: "terminal.commandPalette",
         label: t("menu.commandPalette"),
         icon: "search",
         action: () => onOpenCommandPalette?.(),
-        shortcut: dk("tab.quickSwitch"),
-      },
+      }, "tab.quickSwitch", appSettings.keybindings),
       { label: "separator", separator: true },
       {
+        id: "terminal.display",
         label: t("menu.terminalDisplay"),
         icon: "visibility",
         submenu: [
           {
+            id: "terminal.display.workspacePadding",
             label: t("settings.showWorkspacePadding"),
             checked: appSettings.terminal.show_workspace_padding ?? false,
             action: () =>
@@ -929,6 +1061,7 @@ export default function Header({
               }),
           },
           {
+            id: "terminal.display.lineNumbers",
             label: t("settings.showLineNumbers"),
             checked: appSettings.terminal.show_line_numbers,
             action: () =>
@@ -940,6 +1073,7 @@ export default function Header({
               }),
           },
           {
+            id: "terminal.display.timestamps",
             label: t("settings.showTimestamps"),
             checked: appSettings.terminal.show_timestamps,
             action: () =>
@@ -953,6 +1087,7 @@ export default function Header({
         ],
       },
       {
+        id: "terminal.actionLinks",
         label: t("settings.actionLinks"),
         checked: appSettings.terminal.action_links_enabled ?? false,
         action: () =>
@@ -964,6 +1099,7 @@ export default function Header({
           }),
       },
       {
+        id: "terminal.zoomEnabled",
         label: t("settings.terminalZoomEnabled"),
         checked: terminalZoomEnabled,
         action: () =>
@@ -976,20 +1112,24 @@ export default function Header({
       },
       { label: "separator", separator: true },
       {
+        id: "terminal.smartSplit",
         label: t("menu.smartSplit"),
         icon: "splitscreen",
         submenu: [
           {
+            id: "terminal.smartSplit.auto",
             label: t("menu.autoTile"),
             icon: "dashboard",
             action: () => onSmartSplit?.("auto"),
           },
           {
+            id: "terminal.smartSplit.horizontal",
             label: t("menu.tileHorizontally"),
             icon: "swap_horiz",
             action: () => onSmartSplit?.("horizontal"),
           },
           {
+            id: "terminal.smartSplit.vertical",
             label: t("menu.tileVertically"),
             icon: "swap_vert",
             action: () => onSmartSplit?.("vertical"),
@@ -997,6 +1137,7 @@ export default function Header({
         ],
       },
       {
+        id: "terminal.unsplit",
         label: t("menu.unsplit"),
         icon: "merge",
         action: () => onUnsplit?.(),
@@ -1004,32 +1145,35 @@ export default function Header({
       },
       { label: "separator", separator: true },
       {
+        id: "terminal.syncInput",
         label: t("menu.syncInput"),
         icon: "sync",
         submenu: [
-          {
+          addNativeAccelerator({
+            id: "terminal.syncInput.manageGroups",
             label: t("menu.manageGroups"),
             icon: "settings",
             action: () => onManageSyncGroups?.(),
-            shortcut: dk("terminal.manageSyncGroups"),
-          },
+          }, "terminal.manageSyncGroups", appSettings.keybindings),
         ],
       },
       { label: "separator", separator: true },
       {
+        id: "terminal.broadcastToAll",
         label: t("menu.broadcastToAll"),
         icon: "cell_tower",
         action: () => onBroadcastToAll?.(),
         checked: broadcastToAll,
       },
       { label: "separator", separator: true },
-      {
+      addNativeAccelerator({
+        id: "terminal.clear",
         label: t("menu.clearTerminal"),
         icon: "delete_sweep",
         action: () => onClearTerminal?.(),
-        shortcut: dk("terminal.clear"),
-      },
+      }, "terminal.clear", appSettings.keybindings),
       {
+        id: "terminal.refit",
         label: t("menu.refitTerminals"),
         icon: "fit_screen",
         action: () => onRefitTerminals?.(),
@@ -1037,16 +1181,19 @@ export default function Header({
     ],
     help: [
       {
+        id: "help.documentation",
         label: t("menu.documentation"),
         icon: "menu_book",
         action: () => openUrl(`${packageJson.docspage}`),
       },
       {
+        id: "help.checkUpdates",
         label: t("menu.checkForUpdates"),
         icon: hasUpdate ? "upgrade" : "update",
         action: onCheckForUpdates,
       },
       {
+        id: "help.viewLogs",
         label: t("menu.viewLogs"),
         icon: "article",
         action: async () => {
@@ -1063,9 +1210,173 @@ export default function Header({
         },
       },
       { label: "separator", separator: true },
-      { label: t("menu.about"), action: onAbout, icon: "info" },
+      { id: "app.about", label: t("menu.about"), action: onAbout, icon: "info" },
     ],
   };
+
+  const isActionEnabledForNativeMenu = (item: MenuItem) =>
+    !item.disabled && (!locked || !item.id || MACOS_ALLOWED_LOCKED_ACTIONS.has(item.id));
+
+  const convertMenuItemsForMacos = (items: MenuItem[]): MacosMenuSpecItem[] =>
+    items.flatMap((item): MacosMenuSpecItem[] => {
+      if (item.separator) return [{ kind: "separator" }];
+      if (!item.id) return [];
+      if (item.submenu) {
+        return [
+          {
+            kind: "submenu",
+            id: item.id,
+            label: item.label,
+            enabled: !item.disabled,
+            items: convertMenuItemsForMacos(item.submenu),
+          },
+        ];
+      }
+      const enabled = isActionEnabledForNativeMenu(item);
+      if (typeof item.checked === "boolean") {
+        return [
+          {
+            kind: "check",
+            id: item.id,
+            label: item.label,
+            enabled,
+            checked: item.checked,
+            accelerator: item.accelerator,
+          },
+        ];
+      }
+      return [
+        {
+          kind: "item",
+          id: item.id,
+          label: item.label,
+          enabled,
+          accelerator: item.accelerator,
+        },
+      ];
+    });
+
+  const macosMenuSpec: MacosMenuSpec = {
+    menus: [
+      {
+        id: "app",
+        label: "NyaTerm",
+        items: [
+          {
+            kind: "item",
+            id: "app.about",
+            label: t("menu.about"),
+            enabled: true,
+            accelerator: null,
+          },
+          { kind: "separator" },
+          { kind: "predefined", role: "services" },
+          { kind: "separator" },
+          { kind: "predefined", role: "hide" },
+          { kind: "predefined", role: "hideOthers" },
+          { kind: "predefined", role: "showAll" },
+          { kind: "separator" },
+          {
+            kind: "item",
+            id: "app.quit",
+            label: t("menu.exit"),
+            enabled: true,
+            accelerator: "Cmd+Q",
+          },
+        ],
+      },
+      {
+        id: "file",
+        label: t("menu.file"),
+        items: convertMenuItemsForMacos(menus.file),
+      },
+      {
+        id: "view",
+        label: t("menu.view"),
+        items: convertMenuItemsForMacos(menus.view),
+      },
+      {
+        id: "terminal",
+        label: t("menu.terminal"),
+        items: convertMenuItemsForMacos(menus.terminal),
+      },
+      {
+        id: "help",
+        label: t("menu.help"),
+        items: convertMenuItemsForMacos(menus.help.filter((item) => item.id !== "app.about")),
+      },
+    ],
+  };
+
+  const runNativeMenuAction = (actionId: string) => {
+    if (locked && !MACOS_ALLOWED_LOCKED_ACTIONS.has(actionId)) return;
+    if (actionId === "app.quit") {
+      onRequestQuit?.();
+      return;
+    }
+
+    const visit = (items: MenuItem[]): MenuItem | null => {
+      for (const item of items) {
+        if (item.id === actionId) return item;
+        if (item.submenu) {
+          const found = visit(item.submenu);
+          if (found) return found;
+        }
+      }
+      return null;
+    };
+
+    for (const menu of Object.values(menus)) {
+      const item = visit(menu);
+      if (item && isActionEnabledForNativeMenu(item)) {
+        item.action?.();
+        return;
+      }
+    }
+  };
+  nativeMenuActionRef.current = runNativeMenuAction;
+
+  useEffect(() => {
+    if (!isMacOS) return;
+
+    const specKey = JSON.stringify(macosMenuSpec);
+    if (lastMacosMenuSpecRef.current === specKey) return;
+    lastMacosMenuSpecRef.current = specKey;
+
+    invoke("set_macos_app_menu", { spec: macosMenuSpec }).catch((error) => {
+      logger.error({
+        domain: "ui.error",
+        event: "macos_menu.set_failed",
+        message: "Failed to update macOS app menu",
+        error,
+      });
+    });
+  });
+
+  useEffect(() => {
+    if (!isMacOS) return;
+
+    let disposed = false;
+    let dispose: (() => void) | undefined;
+
+    listen<MacosMenuActionPayload>("macos-menu-action", ({ payload }) => {
+      if (payload.targetWindowLabel && payload.targetWindowLabel !== appWindow.label) return;
+      nativeMenuActionRef.current(payload.actionId);
+    })
+      .then((unlisten) => {
+        if (disposed) {
+          unlisten();
+        } else {
+          dispose = unlisten;
+        }
+      })
+      .catch(() => {});
+
+    return () => {
+      disposed = true;
+      dispose?.();
+    };
+  }, [appWindow.label]);
 
   const renderMenuItem = (item: MenuItem, idx: number) => {
     if (item.separator) {
@@ -1486,27 +1797,29 @@ export default function Header({
           </Button>
         )}
 
-        <Menubar className="border-none bg-transparent h-auto p-0 gap-1 shadow-none">
-          {menuKeys.map(({ key, label }) => (
-            <MenubarMenu key={key}>
-              <MenubarTrigger
-                className="relative cursor-default px-2.5 py-1 text-xs font-medium rounded-md transition-colors text-[var(--df-text-muted)] data-[state=open]:text-[var(--df-primary)] data-[state=open]:bg-[color-mix(in_srgb,var(--df-primary)_10%,transparent)] hover:bg-[color-mix(in_srgb,var(--df-text-muted)_10%,transparent)] focus:bg-[color-mix(in_srgb,var(--df-text-muted)_10%,transparent)] focus:text-[var(--df-text-muted)] data-[state=open]:focus:bg-[color-mix(in_srgb,var(--df-primary)_10%,transparent)] data-[state=open]:focus:text-[var(--df-primary)] outline-none"
-                {...(key === "help" && showUpdateDot ? { onClick: onHelpMenuOpen } : {})}
-              >
-                {label}
-                {key === "help" && showUpdateDot && (
-                  <span className="absolute -top-0.5 -right-0.5 flex h-2 w-2">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
-                    <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500" />
-                  </span>
-                )}
-              </MenubarTrigger>
-              <MenubarContent align="start" className="min-w-[180px]">
-                {menus[key].map((item, idx) => renderMenuItem(item, idx))}
-              </MenubarContent>
-            </MenubarMenu>
-          ))}
-        </Menubar>
+        {!isMacOS && (
+          <Menubar className="border-none bg-transparent h-auto p-0 gap-1 shadow-none">
+            {menuKeys.map(({ key, label }) => (
+              <MenubarMenu key={key}>
+                <MenubarTrigger
+                  className="relative cursor-default px-2.5 py-1 text-xs font-medium rounded-md transition-colors text-[var(--df-text-muted)] data-[state=open]:text-[var(--df-primary)] data-[state=open]:bg-[color-mix(in_srgb,var(--df-primary)_10%,transparent)] hover:bg-[color-mix(in_srgb,var(--df-text-muted)_10%,transparent)] focus:bg-[color-mix(in_srgb,var(--df-text-muted)_10%,transparent)] focus:text-[var(--df-text-muted)] data-[state=open]:focus:bg-[color-mix(in_srgb,var(--df-primary)_10%,transparent)] data-[state=open]:focus:text-[var(--df-primary)] outline-none"
+                  {...(key === "help" && showUpdateDot ? { onClick: onHelpMenuOpen } : {})}
+                >
+                  {label}
+                  {key === "help" && showUpdateDot && (
+                    <span className="absolute -top-0.5 -right-0.5 flex h-2 w-2">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+                      <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500" />
+                    </span>
+                  )}
+                </MenubarTrigger>
+                <MenubarContent align="start" className="min-w-[180px]">
+                  {menus[key].map((item, idx) => renderMenuItem(item, idx))}
+                </MenubarContent>
+              </MenubarMenu>
+            ))}
+          </Menubar>
+        )}
       </div>
 
       <div className="flex-1 min-w-0 h-full flex items-center justify-center gap-2 px-2">

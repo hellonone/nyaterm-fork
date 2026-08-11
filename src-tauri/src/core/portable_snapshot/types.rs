@@ -355,7 +355,9 @@ pub fn strip_device_local_sessions(sessions: &mut config::SessionsConfig) {
             config::ConnectionType::Serial { port_name, .. } => {
                 port_name.clear();
             }
-            config::ConnectionType::Ssh { .. } | config::ConnectionType::Telnet { .. } => {}
+            config::ConnectionType::Ssh { .. }
+            | config::ConnectionType::Telnet { .. }
+            | config::ConnectionType::Rdp { .. } => {}
         }
     }
 }

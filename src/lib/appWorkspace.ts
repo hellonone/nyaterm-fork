@@ -1,6 +1,12 @@
 import type { TerminalWindowNode } from "@/lib/tabWindows";
 import { collectSessionPanes } from "@/lib/workspaceTabs";
-import type { ActivityBarLayout, SessionPane, SessionType, Tab, UiConfig } from "@/types/global";
+import type {
+  ActivityBarLayout,
+  SessionPane,
+  Tab,
+  UiConfig,
+  WorkspaceSessionType,
+} from "@/types/global";
 
 export const NON_PANEL_IDS = new Set(["settings", "lock", "quickCmdBar", "serialSend"]);
 
@@ -41,7 +47,7 @@ export function hasLiveSession<T extends Pick<SessionPane, "connecting" | "conne
   return !!pane && !pane.connecting && !pane.connectError;
 }
 
-export function isNonSerialSessionType(type: SessionType): boolean {
+export function isNonSerialSessionType(type: WorkspaceSessionType): boolean {
   return type === "SSH" || type === "Local" || type === "Telnet";
 }
 

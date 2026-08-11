@@ -157,6 +157,8 @@ encoding_rs = "0.8"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "bmp", "gif", "webp"] }
 rqrr = "0.9"
 serialport = "4"
+ironrdp = { version = "0.17", default-features = false, features = ["client", "connector", "rustls", "input", "pdu"] }
+smallvec = "1"
 strip-ansi-escapes = "0.2"
 arboard = { version = "3", features = ["wayland-data-control"] }
 opendal = { version = "0.58", default-features = false, features = [
@@ -173,6 +175,12 @@ opendal = { version = "0.58", default-features = false, features = [
 ] }
 redb = "4.1.0"
 zmodem2 = { path = "vendor/zmodem2" }
+
+[patch.crates-io]
+ironrdp-connector = { path = "vendor/ironrdp-connector" }
+ironrdp-client = { path = "vendor/ironrdp-client" }
+picky = { path = "vendor/picky" }
+sspi = { path = "vendor/sspi" }
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-updater = { version = "2", default-features = false, features = [

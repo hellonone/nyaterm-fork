@@ -787,6 +787,14 @@ export default function XTerminal({
     const getCurrentAbsoluteLine = () =>
       gutterLineOffsetRef.current + terminal.buffer.active.baseY + terminal.buffer.active.cursorY;
 
+    const requestGutterRefresh = () => {
+      if (disposed || terminalRef.current !== terminal) return;
+      if (performanceModeRef.current !== "normal") return;
+      const terminalSettings = terminalAppSettingsRef.current?.terminal;
+      if (!terminalSettings?.show_line_numbers && !terminalSettings?.show_timestamps) return;
+      window.dispatchEvent(new CustomEvent("nyaterm:refresh-gutter", { detail: { sessionId } }));
+    };
+
     const captureReconnectSnapshot = (contentSuffix = ""): TerminalReconnectSnapshot => {
       const serialized = serializeTerminalSnapshot(terminal, serializeAddon);
       const captureStartLine = gutterLineOffsetRef.current + serialized.captureStartLine;
@@ -813,13 +821,15 @@ export default function XTerminal({
     };
 
     const restoreLineTimestampsFromSnapshot = (snapshot: TerminalReconnectSnapshot) => {
+      const map = lineTimestampsRef.current;
+      map.clear();
+
       if (snapshot.lineTimestamps.length === 0) return;
 
       const restoredEndLine = getCurrentAbsoluteLine();
       const lineDelta = restoredEndLine - snapshot.captureEndLine;
       const minLine = gutterLineOffsetRef.current;
       const maxLine = restoredEndLine;
-      const next = new Map<number, number>();
 
       for (const [line, timestamp] of snapshot.lineTimestamps) {
         const restoredLine = line + lineDelta;
@@ -829,11 +839,9 @@ export default function XTerminal({
           restoredLine >= minLine &&
           restoredLine <= maxLine
         ) {
-          next.set(restoredLine, timestamp);
+          map.set(restoredLine, timestamp);
         }
       }
-
-      lineTimestampsRef.current = next;
     };
 
     const preservedReconnectSnapshot =
@@ -845,6 +853,7 @@ export default function XTerminal({
     const initialReplayPromise = preservedReconnectSnapshot?.content
       ? writeTextInFrames(terminal, preservedReconnectSnapshot.content).then(() => {
           restoreLineTimestampsFromSnapshot(preservedReconnectSnapshot);
+          requestGutterRefresh();
         })
       : Promise.resolve();
     const unregisterReconnectCapture = registerTerminalReconnectCapture(sessionId, () =>
@@ -1715,10 +1724,7 @@ export default function XTerminal({
 
     const refreshGutter = () => {
       if (!isTerminalAlive()) return;
-      if (performanceModeRef.current !== "normal") return;
-      const terminalSettings = terminalAppSettingsRef.current?.terminal;
-      if (!terminalSettings?.show_line_numbers && !terminalSettings?.show_timestamps) return;
-      window.dispatchEvent(new CustomEvent("nyaterm:refresh-gutter", { detail: { sessionId } }));
+      requestGutterRefresh();
     };
 
     resizeDeduperRef.current.reset(sessionId, terminalGeneration);

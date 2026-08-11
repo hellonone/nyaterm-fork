@@ -8,6 +8,7 @@ mod known_hosts;
 mod master_key;
 mod migration;
 mod notes;
+mod rdp_known_hosts;
 mod sessions;
 mod settings_impl;
 mod tables;
@@ -16,12 +17,15 @@ mod util;
 #[cfg(test)]
 mod tests;
 
+pub(crate) use rdp_known_hosts::RdpCertificateMetadata;
+
 #[allow(unused_imports)]
 pub use tables::{
     COMMAND_HISTORY_TABLE, CONNECTIONS_TABLE, CREDENTIALS_TABLE, GROUPS_TABLE,
     IDX_CONNECTIONS_BY_GROUP_TABLE, IDX_CONNECTIONS_BY_LAST_USED_TABLE,
     IDX_CONNECTIONS_BY_PROTOCOL_TABLE, KNOWN_HOSTS_TABLE, META_TABLE, NOTE_FOLDERS_TABLE,
-    NOTES_TABLE, OTP_ACCOUNTS_TABLE, PROXIES_TABLE, SETTINGS_TABLE, TUNNELS_TABLE,
+    NOTES_TABLE, OTP_ACCOUNTS_TABLE, PROXIES_TABLE, RDP_KNOWN_HOSTS_TABLE, SETTINGS_TABLE,
+    TUNNELS_TABLE,
 };
 
 use crate::error::{AppError, AppResult};
@@ -305,6 +309,23 @@ pub(crate) fn render_known_hosts_export() -> AppResult<String> {
 
 pub(crate) fn replace_known_hosts_export(content: &str) -> AppResult<()> {
     storage()?.replace_known_hosts_export(content)
+}
+
+pub(crate) fn check_rdp_known_host(
+    host: &str,
+    port: u16,
+    sha256_fingerprint: &str,
+) -> AppResult<KnownHostCheck> {
+    storage()?.check_rdp_known_host(host, port, sha256_fingerprint)
+}
+
+pub(crate) fn upsert_rdp_known_host(
+    host: &str,
+    port: u16,
+    sha256_fingerprint: &str,
+    certificate: RdpCertificateMetadata,
+) -> AppResult<()> {
+    storage()?.upsert_rdp_known_host(host, port, sha256_fingerprint, certificate)
 }
 
 pub(crate) fn load_master_key_token() -> AppResult<Option<String>> {

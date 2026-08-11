@@ -98,6 +98,7 @@ import type {
   FileExplorerProps,
   SavedConnection,
   SessionInfo,
+  SessionType,
 } from "@/types/global";
 import { FileExplorerDialogs } from "./FileExplorerDialogs";
 import {
@@ -184,6 +185,12 @@ function isFileBrowsableSession(session: SessionInfo) {
     (session.session_type === "Local" ||
       (session.session_type === "SSH" && session.remote_file_browser_enabled))
   );
+}
+
+function toFileExplorerSessionType(session: SessionInfo): SessionType | null {
+  return session.session_type === "Local" || session.session_type === "SSH"
+    ? session.session_type
+    : null;
 }
 
 function getSessionExplorerKind(session: SessionInfo): FileExplorerBackendKind {
@@ -560,7 +567,7 @@ function FileExplorer(props: FileExplorerProps) {
           >
             <FileExplorerPane
               activeSessionId={selectedTarget.id}
-              activeSessionType={selectedTarget.session_type}
+              activeSessionType={toFileExplorerSessionType(selectedTarget)}
               activeConnectionId={null}
               activeSessionName={selectedTarget.name}
               headerMeta={`${selectedTarget.name} · ${

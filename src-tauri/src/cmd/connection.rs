@@ -51,6 +51,7 @@ pub fn save_connection(
     validate_local_terminal_config(&connection)?;
     validate_ssh_algorithm_config(&connection)?;
     validate_sftp_settings_config(&connection)?;
+    validate_rdp_config(&connection)?;
 
     if let Some(ref mut auth) = connection.auth {
         // password_id: Some("") means explicitly cleared, None means preserve existing
@@ -304,6 +305,65 @@ fn validate_local_terminal_config(connection: &SavedConnection) -> AppResult<()>
     }
 
     crate::core::terminal_session::local::parse_shell_args(shell_args).map_err(AppError::Config)?;
+
+    Ok(())
+}
+
+fn validate_rdp_config(connection: &SavedConnection) -> AppResult<()> {
+    let config::ConnectionType::Rdp {
+        host,
+        port,
+        username,
+        security,
+        display,
+        clipboard,
+        reconnect,
+        ..
+    } = &connection.config
+    else {
+        return Ok(());
+    };
+
+    if host.trim().is_empty() {
+        return Err(AppError::Config("RDP host is required".to_string()));
+    }
+    if *port == 0 {
+        return Err(AppError::Config(
+            "RDP port must be between 1 and 65535".to_string(),
+        ));
+    }
+    if username.trim().is_empty() {
+        return Err(AppError::Config("RDP username is required".to_string()));
+    }
+    if !matches!(
+        security.certificate_policy.as_str(),
+        "strict" | "prompt" | "accept-temporarily"
+    ) {
+        return Err(AppError::Config(
+            "RDP certificate policy is invalid".to_string(),
+        ));
+    }
+    if !matches!(display.mode.as_str(), "fit-window" | "fixed" | "native") {
+        return Err(AppError::Config("RDP display mode is invalid".to_string()));
+    }
+    if !(640..=7680).contains(&display.width) || !(480..=4320).contains(&display.height) {
+        return Err(AppError::Config(
+            "RDP display size is outside the supported range".to_string(),
+        ));
+    }
+    if !matches!(display.color_depth, 16 | 24 | 32) {
+        return Err(AppError::Config("RDP color depth is invalid".to_string()));
+    }
+    if !matches!(clipboard.mode.as_str(), "disabled" | "text-only") {
+        return Err(AppError::Config(
+            "RDP clipboard mode is invalid".to_string(),
+        ));
+    }
+    if reconnect.max_attempts > 20 {
+        return Err(AppError::Config(
+            "RDP reconnect attempts must be 20 or fewer".to_string(),
+        ));
+    }
 
     Ok(())
 }

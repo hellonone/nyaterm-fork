@@ -174,6 +174,23 @@ pub enum ConnectionType {
         #[serde(default)]
         encoding: String,
     },
+    Rdp {
+        host: String,
+        #[serde(default = "default_rdp_port")]
+        port: u16,
+        #[serde(default)]
+        username: String,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        domain: String,
+        #[serde(default)]
+        security: RdpSecuritySettings,
+        #[serde(default)]
+        display: RdpDisplaySettings,
+        #[serde(default)]
+        clipboard: RdpClipboardSettings,
+        #[serde(default)]
+        reconnect: RdpReconnectSettings,
+    },
 }
 
 fn default_ssh_port() -> u16 {
@@ -187,6 +204,9 @@ fn default_backspace_mode_ssh() -> String {
 }
 fn default_telnet_port() -> u16 {
     23
+}
+fn default_rdp_port() -> u16 {
+    3389
 }
 fn default_baud_rate() -> u32 {
     115_200
@@ -214,6 +234,99 @@ fn is_ai_execution_profile_auto(value: &AiExecutionProfile) -> bool {
 }
 fn default_true() -> bool {
     true
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RdpSecuritySettings {
+    #[serde(default = "default_true")]
+    pub use_nla: bool,
+    #[serde(default = "default_rdp_certificate_policy")]
+    pub certificate_policy: String,
+}
+
+impl Default for RdpSecuritySettings {
+    fn default() -> Self {
+        Self {
+            use_nla: true,
+            certificate_policy: default_rdp_certificate_policy(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RdpDisplaySettings {
+    #[serde(default = "default_rdp_display_mode")]
+    pub mode: String,
+    #[serde(default = "default_rdp_width")]
+    pub width: u32,
+    #[serde(default = "default_rdp_height")]
+    pub height: u32,
+    #[serde(default = "default_rdp_color_depth")]
+    pub color_depth: u8,
+}
+
+impl Default for RdpDisplaySettings {
+    fn default() -> Self {
+        Self {
+            mode: default_rdp_display_mode(),
+            width: default_rdp_width(),
+            height: default_rdp_height(),
+            color_depth: default_rdp_color_depth(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RdpClipboardSettings {
+    #[serde(default = "default_rdp_clipboard_mode")]
+    pub mode: String,
+}
+
+impl Default for RdpClipboardSettings {
+    fn default() -> Self {
+        Self {
+            mode: default_rdp_clipboard_mode(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RdpReconnectSettings {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default = "default_rdp_reconnect_attempts")]
+    pub max_attempts: u32,
+}
+
+impl Default for RdpReconnectSettings {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            max_attempts: default_rdp_reconnect_attempts(),
+        }
+    }
+}
+
+fn default_rdp_certificate_policy() -> String {
+    "prompt".to_string()
+}
+fn default_rdp_display_mode() -> String {
+    "fit-window".to_string()
+}
+fn default_rdp_width() -> u32 {
+    1920
+}
+fn default_rdp_height() -> u32 {
+    1080
+}
+fn default_rdp_color_depth() -> u8 {
+    32
+}
+fn default_rdp_clipboard_mode() -> String {
+    "text-only".to_string()
+}
+fn default_rdp_reconnect_attempts() -> u32 {
+    5
 }
 
 // ── Auth block ──────────────────────────────────────────────────────────────
@@ -543,7 +656,7 @@ pub fn save_sessions(app: &AppHandle, config: &SessionsConfig) -> AppResult<()> 
             } => {
                 *ai_execution_profile = AiExecutionProfile::Auto;
             }
-            ConnectionType::Ssh { .. } => {}
+            ConnectionType::Ssh { .. } | ConnectionType::Rdp { .. } => {}
         }
         if let Some(auth) = &mut conn.auth {
             auth.has_password = false;
@@ -626,6 +739,7 @@ pub fn resolve_connection_encoding(app: &AppHandle, conn: &SavedConnection) -> S
         | ConnectionType::LocalTerminal { encoding, .. }
         | ConnectionType::Telnet { encoding, .. }
         | ConnectionType::Serial { encoding, .. } => encoding.as_str(),
+        ConnectionType::Rdp { .. } => "",
     };
     if !per_conn.is_empty() {
         return per_conn.to_string();
@@ -998,6 +1112,40 @@ mod tests {
         assert!(force_character_at_a_time);
         assert!(!send_naws);
         assert!(!send_sga);
+    }
+
+    #[test]
+    fn rdp_connection_defaults_mvp_options() {
+        let connection: SavedConnection = serde_json::from_value(serde_json::json!({
+            "id": "rdp-1",
+            "name": "Windows",
+            "type": "rdp",
+            "host": "192.168.1.20",
+            "username": "Administrator"
+        }))
+        .expect("connection");
+
+        let ConnectionType::Rdp {
+            port,
+            security,
+            display,
+            clipboard,
+            reconnect,
+            ..
+        } = connection.config
+        else {
+            panic!("expected rdp connection");
+        };
+
+        assert_eq!(port, 3389);
+        assert!(security.use_nla);
+        assert_eq!(security.certificate_policy, "prompt");
+        assert_eq!(display.width, 1920);
+        assert_eq!(display.height, 1080);
+        assert_eq!(display.color_depth, 32);
+        assert_eq!(clipboard.mode, "text-only");
+        assert!(reconnect.enabled);
+        assert_eq!(reconnect.max_attempts, 5);
     }
 
     #[test]

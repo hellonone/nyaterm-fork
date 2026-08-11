@@ -68,9 +68,9 @@ import {
   findExternalConnectionMatches,
   parseExternalOpenUrl,
 } from "./lib/externalOpen";
+import { normalizeHeaderStatusMode } from "./lib/headerStatus";
 import { invoke } from "./lib/invoke";
 import { logger } from "./lib/logger";
-import { normalizeHeaderStatusMode } from "./lib/headerStatus";
 import {
   listenOpenSendCommandPanel,
   type SendCommandPanelDraft,
@@ -136,18 +136,20 @@ import type {
   SessionPane,
   SessionType,
   Tab,
+  WorkspaceSessionType,
 } from "./types/global";
 
-const CONNECTION_SESSION_TYPES: Record<SavedConnection["type"], SessionType> = {
+const CONNECTION_SESSION_TYPES: Record<SavedConnection["type"], WorkspaceSessionType> = {
   ssh: "SSH",
   local_terminal: "Local",
   telnet: "Telnet",
   serial: "Serial",
+  rdp: "RDP",
 };
 
 function getConnectionSessionType(
   connection: Pick<SavedConnection, "type"> | null | undefined,
-): SessionType {
+): WorkspaceSessionType {
   return connection ? CONNECTION_SESSION_TYPES[connection.type] : "SSH";
 }
 
@@ -224,6 +226,11 @@ async function createSessionForConnection(
       });
     case "serial":
       return invoke<string>("create_serial_session", {
+        connectionId: connection.id,
+        createRequestId,
+      });
+    case "rdp":
+      return invoke<string>("create_rdp_session", {
         connectionId: connection.id,
         createRequestId,
       });
@@ -562,7 +569,7 @@ function App() {
       listen<{
         sessionId: string;
         name: string;
-        type: "SSH" | "Local" | "Telnet" | "Serial";
+        type: WorkspaceSessionType;
         targetLeafId?: string;
         anchorTabId?: string | null;
         targetWindowLabel?: string | null;
@@ -1487,6 +1494,12 @@ function App() {
             connectionId: pane.connectionId,
             createRequestId,
           });
+        case "RDP":
+          if (!pane.connectionId) throw new Error("Missing RDP connection id");
+          return invoke<string>("create_rdp_session", {
+            connectionId: pane.connectionId,
+            createRequestId,
+          });
         default:
           if (!pane.connectionId) throw new Error("Missing SSH connection id");
           return invoke<string>("create_ssh_session", {
@@ -1501,9 +1514,16 @@ function App() {
 
   const closePaneBackendSession = useCallback(
     async (
-      pane: Pick<SessionPane, "connecting" | "connectError" | "sessionId" | "createRequestId">,
+      pane: Pick<
+        SessionPane,
+        "connecting" | "connectError" | "sessionId" | "createRequestId" | "type"
+      >,
     ) => {
       if (pane.connecting) {
+        if (pane.type === "RDP") {
+          await invoke("close_rdp_session", { sessionId: pane.sessionId }).catch(() => {});
+          return true;
+        }
         if (pane.createRequestId) {
           try {
             await invoke("cancel_session_creation", { createRequestId: pane.createRequestId });
@@ -1525,6 +1545,10 @@ function App() {
       }
 
       try {
+        if (pane.type === "RDP") {
+          await invoke("close_rdp_session", { sessionId: pane.sessionId });
+          return true;
+        }
         await flushAssetMonitoringCache(pane.sessionId);
         await attachSessionBeforeClose(pane.sessionId);
         await invoke("close_session", { sessionId: pane.sessionId });
@@ -2796,11 +2820,7 @@ function App() {
         toast.error(t("recording.startFailed"));
       }
     },
-    [
-      refreshRecordingStatuses,
-      recordingSessions,
-      t,
-    ],
+    [refreshRecordingStatuses, recordingSessions, t],
   );
 
   const handleSaveSessionTranscript = useCallback(
@@ -2983,7 +3003,9 @@ function App() {
         if (!tab) continue;
 
         for (const pane of collectSessionPanes(tab.root)) {
-          if (!hasLiveSession(pane) || seen.has(pane.sessionId)) continue;
+          if (pane.paneKind !== "terminal" || !hasLiveSession(pane) || seen.has(pane.sessionId)) {
+            continue;
+          }
           seen.add(pane.sessionId);
           targets.push({
             id: pane.sessionId,
@@ -3016,6 +3038,7 @@ function App() {
     const sessions: QuickSwitcherSession[] = [];
     for (const tab of tabs) {
       for (const pane of collectSessionPanes(tab.root)) {
+        if (pane.paneKind !== "terminal") continue;
         const connection = pane.connectionId ? connectionsById.get(pane.connectionId) : undefined;
         sessions.push({
           id: pane.sessionId,
@@ -3200,7 +3223,7 @@ function App() {
       handleToggleSessionRecording,
       handleTransferResize,
       connectSavedConnection,
-    recordingStatuses,
+      recordingStatuses,
       uiConfig.show_ascend_npu_monitor,
       uiConfig.show_gpu_monitor,
       uiConfig.transfer_height,
@@ -3273,6 +3296,8 @@ function App() {
           onClearTerminal: () => window.dispatchEvent(new CustomEvent("nyaterm:clear-terminal")),
           onRefitTerminals: () =>
             window.dispatchEvent(new CustomEvent("nyaterm:refresh-terminals")),
+          locked: isLocked,
+          onRequestQuit: handleRequestQuit,
         }}
         mobile={{
           leftOpen: mobileLeftOpen,

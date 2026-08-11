@@ -382,6 +382,7 @@ fn connection_protocol(config: &crate::config::ConnectionType) -> &'static str {
         crate::config::ConnectionType::LocalTerminal { .. } => "local_terminal",
         crate::config::ConnectionType::Telnet { .. } => "telnet",
         crate::config::ConnectionType::Serial { .. } => "serial",
+        crate::config::ConnectionType::Rdp { .. } => "rdp",
     }
 }
 pub(super) fn sort_connections(connections: &mut [crate::config::SavedConnection]) {

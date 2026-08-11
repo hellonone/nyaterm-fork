@@ -86,6 +86,7 @@ export default function AppPanelContent({
 }: AppPanelContentProps) {
   const liveActivePane =
     activePane && !activePane.connecting && !activePane.connectError ? activePane : null;
+  const liveTerminalPane = liveActivePane?.paneKind === "terminal" ? liveActivePane : null;
 
   const aiEverMounted = useRef(false);
   if (panelId === "aiAssistant") aiEverMounted.current = true;
@@ -98,9 +99,9 @@ export default function AppPanelContent({
             <div className="flex-1 min-h-0 overflow-hidden">
               <FileExplorer
                 activeSessionId={activeSessionId}
-                activeSessionType={liveActivePane ? liveActivePane.type : null}
-                activeConnectionId={liveActivePane?.connectionId ?? null}
-                activeSessionName={liveActivePane?.name ?? null}
+                activeSessionType={liveTerminalPane ? liveTerminalPane.type : null}
+                activeConnectionId={liveTerminalPane?.connectionId ?? null}
+                activeSessionName={liveTerminalPane?.name ?? null}
               />
             </div>
             <ResizeHandle direction="vertical" onResize={onTransferResize} />
@@ -190,7 +191,7 @@ export default function AppPanelContent({
       {aiEverMounted.current && (
         <div className={isAiActive ? "h-full" : "hidden"}>
           <AIAssistantPanel
-            activePane={liveActivePane}
+            activePane={liveTerminalPane}
             activeConnection={activeConnection}
             intent={aiIntent}
           />

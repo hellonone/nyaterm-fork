@@ -1,5 +1,7 @@
 /** Type of terminal session. */
 export type SessionType = "SSH" | "Local" | "Telnet" | "Serial";
+export type WorkspaceSessionType = SessionType | "RDP";
+export type WorkspacePaneKind = "terminal" | "rdp";
 
 export interface AppRuntimeInfo {
   portable: boolean;
@@ -19,13 +21,7 @@ export interface AppSupportInfo {
 }
 
 /** AI Agent command execution wrapper profile. */
-export type AIExecutionProfile =
-  | "auto"
-  | "posix"
-  | "powershell"
-  | "cmd"
-  | "send_only"
-  | "disabled";
+export type AIExecutionProfile = "auto" | "posix" | "powershell" | "cmd" | "send_only" | "disabled";
 
 /** A group of sessions whose terminal input is broadcast to all members. */
 export interface SyncGroup {
@@ -42,13 +38,13 @@ export interface SyncGroup {
 export type PaneSplitDirection = "horizontal" | "vertical";
 
 /** Connection type discriminator matching Rust ConnectionType. */
-export type ConnectionTypeTag = "ssh" | "local_terminal" | "telnet" | "serial";
+export type ConnectionTypeTag = "ssh" | "local_terminal" | "telnet" | "serial" | "rdp";
 
 /** Metadata for a connected or disconnected session. */
 export interface SessionInfo {
   id: string;
   name: string;
-  session_type: SessionType;
+  session_type: WorkspaceSessionType;
   connection_id?: string | null;
   connected: boolean;
   owner_window_label?: string | null;
@@ -59,13 +55,14 @@ export interface SessionInfo {
   remote_file_browser_enabled: boolean;
 }
 
-/** Leaf node representing one terminal session inside a workspace tab. */
-export interface SessionPane {
+/** Shared fields for one session-like leaf inside a workspace tab. */
+export interface WorkspacePaneBase {
   id: string;
   kind: "leaf";
+  paneKind: WorkspacePaneKind;
   sessionId: string;
   name: string;
-  type: SessionType;
+  type: WorkspaceSessionType;
   connectionId?: string;
   /** True while the backend session is being established. XTerminal is not rendered yet. */
   connecting?: boolean;
@@ -74,6 +71,25 @@ export interface SessionPane {
   /** Populated when session creation failed and the pane should stay visible as an error state. */
   connectError?: string;
 }
+
+/** Leaf node representing one terminal session inside a workspace tab. */
+export interface TerminalSessionPane extends WorkspacePaneBase {
+  paneKind: "terminal";
+  type: SessionType;
+}
+
+/** Leaf node representing one graphical RDP session inside a workspace tab. */
+export interface RdpSessionPane extends WorkspacePaneBase {
+  paneKind: "rdp";
+  type: "RDP";
+  display?: {
+    remoteWidth: number;
+    remoteHeight: number;
+    scaleMode: "fit" | "actual" | "stretch";
+  };
+}
+
+export type SessionPane = TerminalSessionPane | RdpSessionPane;
 
 /** Split node containing two child panes. */
 export interface SplitPane {
@@ -374,6 +390,41 @@ export interface SavedConnection {
   x11_forwarding?: boolean;
   /** Per-connection encoding override. Empty string means follow global setting. */
   encoding?: string;
+  /** RDP-only: optional Windows/domain part for authentication. */
+  domain?: string;
+  /** RDP-only security options. */
+  security?: RdpSecuritySettings;
+  /** RDP-only display options. */
+  display?: RdpDisplaySettings;
+  /** RDP-only clipboard options. */
+  clipboard?: RdpClipboardSettings;
+  /** RDP-only reconnect options. */
+  reconnect?: RdpReconnectSettings;
+}
+
+export type RdpCertificatePolicy = "strict" | "prompt" | "accept-temporarily";
+export type RdpDisplayMode = "fit-window" | "fixed" | "native";
+export type RdpClipboardMode = "disabled" | "text-only";
+
+export interface RdpSecuritySettings {
+  use_nla: boolean;
+  certificate_policy: RdpCertificatePolicy;
+}
+
+export interface RdpDisplaySettings {
+  mode: RdpDisplayMode;
+  width: number;
+  height: number;
+  color_depth: 16 | 24 | 32;
+}
+
+export interface RdpClipboardSettings {
+  mode: RdpClipboardMode;
+}
+
+export interface RdpReconnectSettings {
+  enabled: boolean;
+  max_attempts: number;
 }
 
 export type RecordingMode = "transcript" | "raw";
@@ -447,8 +498,9 @@ export interface OtpCodeResult {
 export interface RestorableSessionPane {
   id?: string;
   kind: "leaf";
+  pane_kind?: WorkspacePaneKind;
   title: string;
-  session_type: SessionType | "local";
+  session_type: WorkspaceSessionType | "local";
   connection_id?: string;
 }
 
@@ -498,11 +550,7 @@ export type RightPanelId =
   | "recording"
   | "syncBackupHistory";
 
-export type ActivityBarZone =
-  | "left_top"
-  | "left_bottom"
-  | "right_top"
-  | "right_bottom";
+export type ActivityBarZone = "left_top" | "left_bottom" | "right_top" | "right_bottom";
 
 export interface ActivityBarLayout {
   left_top: string[];
@@ -516,13 +564,7 @@ export interface ActivityBarLayout {
 /** Layout preferences: panel widths, active panels, theme. */
 export type QuickCommandViewMode = "list" | "compact" | "tile";
 export type QuickCommandSortMode = "created" | "name" | "useCount";
-export type HeaderStatusMode =
-  | "session"
-  | "resources"
-  | "host"
-  | "datetime"
-  | "gpu"
-  | "npu";
+export type HeaderStatusMode = "session" | "resources" | "host" | "datetime" | "gpu" | "npu";
 
 export type RestorableTerminalWindowNode =
   | {
@@ -864,10 +906,7 @@ export interface QuickCommandsConfig {
   categories: QuickCommandCategory[];
 }
 
-export type QuickCommandImportSource =
-  | "windterm_quickbar"
-  | "xshell_xts"
-  | "nyaterm_json";
+export type QuickCommandImportSource = "windterm_quickbar" | "xshell_xts" | "nyaterm_json";
 
 export interface QuickCommandImportResult {
   imported_commands: number;
@@ -1132,13 +1171,7 @@ export type AIMode = "ask" | "agent";
 export type AIAgentCommandExecutionMode = "confirm_each" | "smart" | "auto";
 export type AIAgentKind = "nyaterm" | "codex" | "claude_code";
 export type AIPermissionMode = "observer" | "confirm" | "auto";
-export type AIReasoningEffort =
-  | "auto"
-  | "none"
-  | "low"
-  | "medium"
-  | "high"
-  | "xhigh";
+export type AIReasoningEffort = "auto" | "none" | "low" | "medium" | "high" | "xhigh";
 export type AIModelSource = "rust-genai" | "manual";
 export type AIBackendKind = "genai" | "codex";
 export type CodexThreadMode = "persistent" | "ephemeral";
@@ -1358,12 +1391,7 @@ export interface AIStreamEventPayload {
 }
 
 export type AgentActionKind = "execute_command" | "final_answer";
-export type AgentStepStatus =
-  | "running"
-  | "completed"
-  | "needs_approval"
-  | "rejected"
-  | "failed";
+export type AgentStepStatus = "running" | "completed" | "needs_approval" | "rejected" | "failed";
 
 export interface AgentStepAction {
   kind: AgentActionKind;

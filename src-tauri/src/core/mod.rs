@@ -14,6 +14,7 @@ pub mod monitoring;
 mod output;
 pub mod portable_snapshot;
 mod quick_commands;
+pub mod rdp;
 mod recording;
 pub mod remote_exec;
 mod session;
@@ -29,6 +30,7 @@ pub(crate) use output::{SessionOutputCoalescer, TerminalOutputPayload};
 pub use quick_commands::{
     QuickCommandsImportResult, QuickCommandsImportSource, QuickCommandsStore,
 };
+pub use rdp::RdpSessionManager;
 pub use recording::{
     ExistingFileBehavior, InputOrigin, InputSensitivity, RecordingContext, RecordingManager,
     RecordingMode, RecordingProfile, RecordingStatus, RotationPolicy, TerminalHistorySearchRequest,

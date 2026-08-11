@@ -13,6 +13,7 @@ import {
 import ChildWindowHeader from "@/components/layout/ChildWindowHeader";
 import { buildGroupPath, type ConnectionOption, sortLabel } from "@/components/network/shared";
 import { LocalTerminal } from "@/components/sessions/LocalTerminal";
+import { RdpForm } from "@/components/sessions/RdpForm";
 import { SerialForm } from "@/components/sessions/SerialForm";
 import { type SshAuthMode, SshForm } from "@/components/sessions/SshForm";
 import { TelnetForm } from "@/components/sessions/TelnetForm";
@@ -40,6 +41,8 @@ import type {
   Group,
   OtpEntry,
   ProxyConfig,
+  RdpCertificatePolicy,
+  RdpClipboardMode,
   RecordingMode,
   SavedConnection,
   SftpSettings,
@@ -122,7 +125,9 @@ export default function NewSessionPage() {
   const [host, setHost] = useState("");
   const [sshPort, setSshPort] = useState(22);
   const [telnetPort, setTelnetPort] = useState(23);
+  const [rdpPort, setRdpPort] = useState(3389);
   const [username, setUsername] = useState("root");
+  const [rdpDomain, setRdpDomain] = useState("");
   const [authType, setAuthType] = useState<SshAuthMode>("password");
   const [passwordId, setPasswordId] = useState("");
   const [password, setPassword] = useState("");
@@ -140,6 +145,13 @@ export default function NewSessionPage() {
   const [newGroupName, setNewGroupName] = useState("");
   const [newGroupParentId, setNewGroupParentId] = useState("");
   const [currentTab, setCurrentTab] = useState("ssh");
+  const [rdpUseNla, setRdpUseNla] = useState(true);
+  const [rdpCertificatePolicy, setRdpCertificatePolicy] = useState<RdpCertificatePolicy>("prompt");
+  const [rdpDisplayWidth, setRdpDisplayWidth] = useState(1920);
+  const [rdpDisplayHeight, setRdpDisplayHeight] = useState(1080);
+  const [rdpClipboardMode, setRdpClipboardMode] = useState<RdpClipboardMode>("text-only");
+  const [rdpReconnectEnabled, setRdpReconnectEnabled] = useState(true);
+  const [rdpReconnectMaxAttempts, setRdpReconnectMaxAttempts] = useState(5);
 
   // Proxy
   const [proxyId, setProxyId] = useState("");
@@ -226,6 +238,7 @@ export default function NewSessionPage() {
           local_terminal: "local",
           telnet: "telnet",
           serial: "serial",
+          rdp: "rdp",
         };
         setCurrentTab(tabMap[found.type] || "ssh");
         setEncoding(found.encoding || "global");
@@ -278,6 +291,20 @@ export default function NewSessionPage() {
           setParity(found.parity || "none");
           setStopBits(found.stop_bits || "1");
           setSerialBackspaceMode(found.backspace_mode || "ctrl_h");
+        } else if (found.type === "rdp") {
+          setHost(found.host || "");
+          setRdpPort(found.port || 3389);
+          setUsername(found.username || "");
+          setRdpDomain(found.domain || "");
+          setPasswordId(found.auth?.password_id || "");
+          setHasPassword(found.auth?.has_password || false);
+          setRdpUseNla(found.security?.use_nla ?? true);
+          setRdpCertificatePolicy(found.security?.certificate_policy ?? "prompt");
+          setRdpDisplayWidth(found.display?.width ?? 1920);
+          setRdpDisplayHeight(found.display?.height ?? 1080);
+          setRdpClipboardMode(found.clipboard?.mode ?? "text-only");
+          setRdpReconnectEnabled(found.reconnect?.enabled ?? true);
+          setRdpReconnectMaxAttempts(found.reconnect?.max_attempts ?? 5);
         }
       })
       .catch((e) => setError(getErrorMessage(e)));
@@ -313,7 +340,9 @@ export default function NewSessionPage() {
     setHost("");
     setSshPort(22);
     setTelnetPort(23);
+    setRdpPort(3389);
     setUsername("root");
+    setRdpDomain("");
     setAuthType("password");
     setPasswordId("");
     setPassword("");
@@ -352,6 +381,13 @@ export default function NewSessionPage() {
     setTelnetForceCharacterAtATime(false);
     setTelnetSendNaws(true);
     setTelnetSendSga(true);
+    setRdpUseNla(true);
+    setRdpCertificatePolicy("prompt");
+    setRdpDisplayWidth(1920);
+    setRdpDisplayHeight(1080);
+    setRdpClipboardMode("text-only");
+    setRdpReconnectEnabled(true);
+    setRdpReconnectMaxAttempts(5);
     setEncoding("global");
     setRecordingUseGlobal(true);
     setRecordingAutoStart(appSettings.recording.auto_start);
@@ -516,6 +552,28 @@ export default function NewSessionPage() {
       }
     }
 
+    if (currentTab === "rdp") {
+      if (!host.trim()) {
+        return t("dialog.hostRequired");
+      }
+      if (!isValidPort(rdpPort)) {
+        return t("dialog.portInvalid", "Port must be between 1 and 65535");
+      }
+      if (!username.trim()) {
+        return t("dialog.usernameRequired", "Username is required");
+      }
+      if (!Number.isInteger(rdpDisplayWidth) || rdpDisplayWidth < 640 || rdpDisplayWidth > 7680) {
+        return t("dialog.rdpDisplayWidthInvalid");
+      }
+      if (
+        !Number.isInteger(rdpDisplayHeight) ||
+        rdpDisplayHeight < 480 ||
+        rdpDisplayHeight > 4320
+      ) {
+        return t("dialog.rdpDisplayHeightInvalid");
+      }
+    }
+
     if (currentTab === "serial") {
       if (!serialPortName.trim()) {
         return t("dialog.serialPortRequired", "Serial port is required");
@@ -541,6 +599,9 @@ export default function NewSessionPage() {
     postLoginCommand,
     postLoginDelayMs,
     postLoginEnabled,
+    rdpDisplayHeight,
+    rdpDisplayWidth,
+    rdpPort,
     serialPortName,
     shellPath,
     sshPort,
@@ -591,7 +652,9 @@ export default function NewSessionPage() {
             ? normalizedSerialPortName
             : currentTab === "telnet"
               ? `${normalizedHost}:${telnetPort}`
-              : normalizedHost;
+              : currentTab === "rdp"
+                ? `${normalizedHost}:${rdpPort}`
+                : normalizedHost;
 
       const typeTag =
         currentTab === "ssh"
@@ -600,7 +663,9 @@ export default function NewSessionPage() {
             ? "local_terminal"
             : currentTab === "telnet"
               ? "telnet"
-              : "serial";
+              : currentTab === "rdp"
+                ? "rdp"
+                : "serial";
       const network =
         currentTab === "ssh"
           ? (() => {
@@ -615,10 +680,10 @@ export default function NewSessionPage() {
             })()
           : undefined;
       const auth =
-        currentTab === "ssh" || currentTab === "telnet"
+        currentTab === "ssh" || currentTab === "telnet" || currentTab === "rdp"
           ? (() => {
               const resolvedAuthMode: SshAuthMode =
-                currentTab === "telnet"
+                currentTab === "telnet" || currentTab === "rdp"
                   ? authType === "none"
                     ? "none"
                     : "password"
@@ -745,6 +810,32 @@ export default function NewSessionPage() {
               backspace_mode: serialBackspaceMode,
             }
           : {}),
+        ...(currentTab === "rdp"
+          ? {
+              host: normalizedHost,
+              port: rdpPort,
+              username: normalizedUsername,
+              domain: rdpDomain.trim() || undefined,
+              auth,
+              security: {
+                use_nla: rdpUseNla,
+                certificate_policy: rdpCertificatePolicy,
+              },
+              display: {
+                mode: "fit-window",
+                width: rdpDisplayWidth,
+                height: rdpDisplayHeight,
+                color_depth: 32,
+              },
+              clipboard: {
+                mode: rdpClipboardMode,
+              },
+              reconnect: {
+                enabled: rdpReconnectEnabled,
+                max_attempts: rdpReconnectMaxAttempts,
+              },
+            }
+          : {}),
       };
 
       const savedId = await invoke<string>("save_connection", { connection });
@@ -782,7 +873,7 @@ export default function NewSessionPage() {
         className="flex-1 min-h-0 flex flex-col overflow-hidden"
       >
         <div className="shrink-0 px-4 pt-3 sm:px-5">
-          <TabsList className="grid h-8 w-full grid-cols-4 pointer-events-auto">
+          <TabsList className="grid h-8 w-full grid-cols-5 pointer-events-auto">
             <TabsTrigger value="ssh" className="text-xs">
               SSH
             </TabsTrigger>
@@ -794,6 +885,9 @@ export default function NewSessionPage() {
             </TabsTrigger>
             <TabsTrigger value="serial" className="text-xs">
               {t("dialog.serial")}
+            </TabsTrigger>
+            <TabsTrigger value="rdp" className="text-xs">
+              RDP
             </TabsTrigger>
           </TabsList>
         </div>
@@ -1182,6 +1276,39 @@ export default function NewSessionPage() {
               setBackspaceMode={setSerialBackspaceMode}
               encoding={encoding}
               setEncoding={setEncoding}
+            />
+          </TabsContent>
+
+          <TabsContent value="rdp" className="space-y-3 m-0 border-0 outline-none w-full">
+            <RdpForm
+              host={host}
+              setHost={setHost}
+              port={rdpPort}
+              setPort={setRdpPort}
+              username={username}
+              setUsername={setUsername}
+              domain={rdpDomain}
+              setDomain={setRdpDomain}
+              passwordId={passwordId}
+              setPasswordId={setPasswordId}
+              password={password}
+              setPassword={setPassword}
+              hasPassword={hasPassword}
+              setHasPassword={setHasPassword}
+              useNla={rdpUseNla}
+              setUseNla={setRdpUseNla}
+              certificatePolicy={rdpCertificatePolicy}
+              setCertificatePolicy={setRdpCertificatePolicy}
+              displayWidth={rdpDisplayWidth}
+              setDisplayWidth={setRdpDisplayWidth}
+              displayHeight={rdpDisplayHeight}
+              setDisplayHeight={setRdpDisplayHeight}
+              clipboardMode={rdpClipboardMode}
+              setClipboardMode={setRdpClipboardMode}
+              reconnectEnabled={rdpReconnectEnabled}
+              setReconnectEnabled={setRdpReconnectEnabled}
+              reconnectMaxAttempts={rdpReconnectMaxAttempts}
+              setReconnectMaxAttempts={setRdpReconnectMaxAttempts}
             />
           </TabsContent>
 

@@ -98,7 +98,12 @@ export function getSessionInputPeerIds(
   if (broadcastToAll) {
     for (const tab of tabs) {
       for (const pane of collectSessionPanes(tab.root)) {
-        if (pane.sessionId !== sessionId && !pane.connecting && !pane.connectError) {
+        if (
+          pane.paneKind === "terminal" &&
+          pane.sessionId !== sessionId &&
+          !pane.connecting &&
+          !pane.connectError
+        ) {
           peers.add(pane.sessionId);
         }
       }

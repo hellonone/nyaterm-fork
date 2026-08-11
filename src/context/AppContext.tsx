@@ -46,10 +46,10 @@ import type {
   PaneSplitDirection,
   SavedConnection,
   SessionPane,
-  SessionType,
   SyncGroup,
   Tab,
   UiConfig,
+  WorkspaceSessionType,
 } from "@/types/global";
 import { invoke } from "../lib/invoke";
 import { logger, setLoggerLevel } from "../lib/logger";
@@ -64,7 +64,7 @@ interface AppContextType {
   addTab: (
     sessionId: string,
     name: string,
-    type: SessionType,
+    type: WorkspaceSessionType,
     connectionId?: string,
     extra?: Partial<Pick<Tab, "customName" | "tabColor">>,
     options?: { afterTabId?: string },
@@ -72,7 +72,7 @@ interface AppContextType {
   /** Immediately add a "connecting" tab and make it active. Returns the new tabId. */
   addPendingTab: (
     name: string,
-    type: SessionType,
+    type: WorkspaceSessionType,
     connectionId?: string,
     extra?: Partial<Pick<Tab, "customName" | "tabColor">>,
     options?: { afterTabId?: string },
@@ -288,8 +288,7 @@ const DEFAULT_APP_SETTINGS: AppSettings = {
     auto_start: false,
     default_mode: "transcript",
     base_path: "",
-    path_template:
-      "{group}/{session}/{yyyy}-{MM}-{dd}/{HH}-{mm}-{ss}-{SSS}-{session_short_id}.log",
+    path_template: "{group}/{session}/{yyyy}-{MM}-{dd}/{HH}-{mm}-{ss}-{SSS}-{session_short_id}.log",
     include_timestamps: true,
     include_io_labels: true,
     include_session_metadata: true,
@@ -751,7 +750,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     (
       sessionId: string,
       name: string,
-      type: SessionType,
+      type: WorkspaceSessionType,
       connectionId?: string,
       extra?: Partial<Pick<Tab, "customName" | "tabColor">>,
       options?: { afterTabId?: string },
@@ -775,7 +774,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const addPendingTab = useCallback(
     (
       name: string,
-      type: SessionType,
+      type: WorkspaceSessionType,
       connectionId?: string,
       extra?: Partial<Pick<Tab, "customName" | "tabColor">>,
       options?: { afterTabId?: string },
@@ -1120,7 +1119,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     (
       tabId: string,
       paneId: string,
-      sessionType: SessionType,
+      sessionType: WorkspaceSessionType,
       connectionId: string | undefined,
       error: unknown,
     ) => {
@@ -1211,6 +1210,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
                 .then((sessionId) => handleRestoredSessionCreated(tab.id, pane.id, sessionId))
                 .catch((e) =>
                   handleRestoredSessionFailed(tab.id, pane.id, "Serial", pane.connectionId, e),
+                );
+              break;
+            case "RDP":
+              if (!cid) {
+                markPaneConnectionFailed(tab.id, pane.id, "Missing RDP connection id");
+                return;
+              }
+              invoke<string>("create_rdp_session", {
+                connectionId: cid,
+                createRequestId: pane.createRequestId,
+              })
+                .then((sessionId) => handleRestoredSessionCreated(tab.id, pane.id, sessionId, cid))
+                .catch((e) =>
+                  handleRestoredSessionFailed(tab.id, pane.id, "RDP", pane.connectionId, e),
                 );
               break;
           }
